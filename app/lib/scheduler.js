@@ -223,6 +223,22 @@ async function checkAndNotifyStats({ getBaseConfig, DATA_DIR, buildGoogleViewer,
         const metadata = baseConfig.appMetadata?.[pkgId] || {};
         const { score: healthScore, alerts: smartAlerts } = calculateAppHealthScore(stats, metadata);
 
+        // Automated Negative Review Webhook Dispatch (v1.6.0)
+        let negativeReviewsAlerted = [];
+        try {
+          negativeReviewsAlerted = await checkNegativeReviewAlerts({
+            pkgId,
+            platform,
+            displayName,
+            baseConfig
+          });
+          if (negativeReviewsAlerted.length > 0) {
+            console.log(`[Scheduler] Dispatched urgent alert for ${negativeReviewsAlerted.length} negative review(s) on ${displayName}`);
+          }
+        } catch (e) {
+          console.warn('[Scheduler] Review check error:', e.message);
+        }
+
         return {
           appKey,
           displayName,
@@ -234,7 +250,8 @@ async function checkAndNotifyStats({ getBaseConfig, DATA_DIR, buildGoogleViewer,
           isNewData,
           lastAnomalyDate: stats.retentionBenchmarks?.churnAnomalies?.find(a => a.severity === 'high')?.date || null,
           healthScore,
-          smartAlerts
+          smartAlerts,
+          negativeReviewsAlerted
         };
       } catch (err) {
         console.error(`[Scheduler] Error checking stats for ${displayName} (${platform}):`, err.message);
@@ -387,8 +404,63 @@ function getSchedulerStatus() {
   return lastSchedulerStatus;
 }
 
+/**
+ * Scans recent store reviews and dispatches urgent multi-channel webhook alerts for negative (1-2 star) reviews.
+ */
+async function checkNegativeReviewAlerts({ pkgId, platform, displayName, baseConfig }) {
+  const { db } = require('./db');
+  if (!db) return [];
+  const scraper = require('./aso/scraper');
+
+  try {
+    const isApple = platform.toLowerCase() === 'apple' || platform.toLowerCase() === 'ios';
+    const reviews = isApple
+      ? await scraper.getAppleReviewsRSS(pkgId)
+      : await scraper.getPlayReviews(pkgId, 25);
+
+    if (!Array.isArray(reviews) || reviews.length === 0) return [];
+
+    const negativeReviews = reviews.filter(r => r && r.rating && r.rating <= 2);
+    const newlyAlerted = [];
+
+    for (const rev of negativeReviews) {
+      const revId = String(rev.id || `${pkgId}_${rev.author}_${rev.reviewDate || Date.now()}`);
+      const alreadyAlerted = db.prepare('SELECT review_id FROM negative_review_alerts WHERE review_id = ?').get(revId);
+
+      if (!alreadyAlerted) {
+        const title = `🚨 Negative Review Alert (${rev.rating}★): ${displayName}`;
+        const bodySnippet = rev.body ? (rev.body.length > 280 ? rev.body.substring(0, 277) + '...' : rev.body) : '';
+        const message = `"${rev.title ? rev.title + ' — ' : ''}${bodySnippet}"\n\nAuthor: ${rev.author || 'Anonymous'} (v${rev.version || 'unknown'})\nStore: ${platform.toUpperCase()}`;
+
+        await broadcastAlert({
+          title,
+          message,
+          priority: 'urgent',
+          tags: 'warning,rotating_light',
+          topic: baseConfig.ntfyTopic || process.env.NTFY_TOPIC,
+          webhookUrl: baseConfig.webhookUrl || process.env.WEBHOOK_URL,
+          slackWebhookUrl: baseConfig.slackWebhookUrl || process.env.SLACK_WEBHOOK_URL,
+          telegram: baseConfig.telegram
+        }).catch(e => console.error('[ReviewAlert] Broadcast failed:', e.message));
+
+        db.prepare(`
+          INSERT INTO negative_review_alerts (review_id, package_name, platform, rating, author, title, body, alerted_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        `).run(revId, pkgId, platform, rev.rating, rev.author || 'Anonymous', rev.title || '', rev.body || '');
+
+        newlyAlerted.push(revId);
+      }
+    }
+    return newlyAlerted;
+  } catch (err) {
+    console.warn(`[ReviewAlert] Review check error for ${displayName}:`, err.message);
+    return [];
+  }
+}
+
 module.exports = {
   checkAndNotifyStats,
   startPeriodicScheduler,
-  getSchedulerStatus
+  getSchedulerStatus,
+  checkNegativeReviewAlerts
 };

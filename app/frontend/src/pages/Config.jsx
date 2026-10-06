@@ -4,8 +4,7 @@ import {
   Zap, Code2, Sliders, Eye, EyeOff,
   Folder, Key, Database, Globe, Copy, RotateCcw, Bot, Coffee,
   Bell, Clock, BookOpen, HelpCircle, ChevronDown, ChevronRight, Search, FileText,
-  Layers, Plus, Trash2, GitBranch
-
+  Layers, Plus, Trash2, GitBranch, Users, UserPlus, ShieldCheck, RefreshCw, Lock
 } from 'lucide-react';
 import { apiFetch } from '../lib/api';
 import { TOP_10_TIMEZONES } from '../lib/constants';
@@ -821,6 +820,140 @@ export default function Config({ authToken, isStaticMode, isDemoMode, fetchAiSta
   const [schedulerStatus, setSchedulerStatus] = useState(null);
   const [isCustomTz, setIsCustomTz] = useState(false);
 
+  // Native Apple Token Diagnostics State (v2.0.0)
+  const [appleTokenStatus, setAppleTokenStatus] = useState(null);
+  const [appleTokenLoading, setAppleTokenLoading] = useState(false);
+
+  // Multi-Tenant / Team Members Auth State (v2.0.0)
+  const [teamMembers, setTeamMembers] = useState([]);
+  const [teamLoading, setTeamLoading] = useState(false);
+  const [newMemberEmail, setNewMemberEmail] = useState('');
+  const [newMemberName, setNewMemberName] = useState('');
+  const [newMemberRole, setNewMemberRole] = useState('member');
+  const [newMemberPassword, setNewMemberPassword] = useState('');
+  const [memberActionMsg, setMemberActionMsg] = useState(null);
+
+  const handleCheckAppleToken = async () => {
+    setAppleTokenLoading(true);
+    setAppleTokenStatus(null);
+    if (isDemoMode) {
+      setTimeout(() => {
+        setAppleTokenStatus({
+          configured: true,
+          keyId: entry.appleKeyId || 'DEMO123456',
+          issuerId: entry.appleIssuerId || '00000000-0000-0000-0000-000000000000',
+          tokenPreview: 'eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9...',
+          liveApiReachable: true,
+          statusCode: 200,
+          generatedAt: new Date().toISOString()
+        });
+        setAppleTokenLoading(false);
+      }, 500);
+      return;
+    }
+    try {
+      const res = await apiFetch('/api/apple/token-status', {}, authToken, isStaticMode);
+      const data = await res.json();
+      setAppleTokenStatus(data);
+    } catch (e) {
+      setAppleTokenStatus({ error: e.message });
+    } finally {
+      setAppleTokenLoading(false);
+    }
+  };
+
+  const fetchTeamMembers = async () => {
+    if (isDemoMode) {
+      setTeamMembers([
+        { id: 1, email: 'admin@apprankly.internal', name: 'Lead Admin', role: 'admin', created_at: '2026-01-01T00:00:00.000Z' },
+        { id: 2, email: 'growth@apprankly.internal', name: 'Growth Team', role: 'member', created_at: '2026-02-15T00:00:00.000Z' }
+      ]);
+      return;
+    }
+    setTeamLoading(true);
+    try {
+      const res = await apiFetch('/api/team/members', {}, authToken, isStaticMode);
+      if (res.ok) {
+        const data = await res.json();
+        setTeamMembers(data.users || []);
+      }
+    } catch (e) {
+      console.warn('Failed to fetch team members:', e);
+    } finally {
+      setTeamLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'team') {
+      fetchTeamMembers();
+    }
+  }, [activeTab]);
+
+  const handleCreateMember = async (e) => {
+    e?.preventDefault();
+    if (!newMemberEmail.trim() || !newMemberPassword.trim()) return;
+    setTeamLoading(true);
+    setMemberActionMsg(null);
+    if (isDemoMode) {
+      setTimeout(() => {
+        setTeamMembers(prev => [...prev, {
+          id: Date.now(),
+          email: newMemberEmail.trim(),
+          name: newMemberName.trim() || newMemberEmail.split('@')[0],
+          role: newMemberRole,
+          created_at: new Date().toISOString()
+        }]);
+        setNewMemberEmail('');
+        setNewMemberName('');
+        setNewMemberPassword('');
+        setTeamLoading(false);
+        setMemberActionMsg({ type: 'success', text: 'Team member created (demo mode)' });
+      }, 500);
+      return;
+    }
+    try {
+      const res = await apiFetch('/api/team/members', {
+        method: 'POST',
+        body: JSON.stringify({
+          email: newMemberEmail.trim(),
+          name: newMemberName.trim(),
+          role: newMemberRole,
+          password: newMemberPassword.trim()
+        })
+      }, authToken, isStaticMode);
+      const data = await res.json();
+      if (res.ok) {
+        setMemberActionMsg({ type: 'success', text: 'Team member created successfully' });
+        setNewMemberEmail('');
+        setNewMemberName('');
+        setNewMemberPassword('');
+        fetchTeamMembers();
+      } else {
+        setMemberActionMsg({ type: 'error', text: data.error || 'Failed to create member' });
+      }
+    } catch (e) {
+      setMemberActionMsg({ type: 'error', text: e.message });
+    } finally {
+      setTeamLoading(false);
+    }
+  };
+
+  const handleDeleteMember = async (id) => {
+    if (!window.confirm('Are you sure you want to remove this user?')) return;
+    if (isDemoMode) {
+      setTeamMembers(prev => prev.filter(u => u.id !== id));
+      return;
+    }
+    try {
+      const res = await apiFetch(`/api/team/members/${id}`, { method: 'DELETE' }, authToken, isStaticMode);
+      if (res.ok) {
+        fetchTeamMembers();
+      }
+    } catch (e) {
+      console.warn('Failed to delete member:', e);
+    }
+  };
 
   useEffect(() => {
     if (!authToken) return;
@@ -1065,6 +1198,7 @@ export default function Config({ authToken, isStaticMode, isDemoMode, fetchAiSta
       <div className="flex items-center space-x-1 p-1 bg-white/5 rounded-2xl border border-white/5 w-fit">
         {[
           { id: 'form', label: 'Form Editor', icon: Sliders },
+          { id: 'team', label: 'Team & Multi-User', icon: Users },
           { id: 'json', label: 'Raw JSON', icon: Code2 },
           { id: 'test', label: 'Test Connections', icon: Zap },
           { id: 'docs', label: 'Variable Docs', icon: BookOpen }
@@ -1145,8 +1279,51 @@ export default function Config({ authToken, isStaticMode, isDemoMode, fetchAiSta
 
           <div className="glass-card p-6 space-y-4">
             <SectionHeader icon={Key} title="Apple App Store Connect" subtitle="App Store Connect API credentials">
-              <TestButton platform="apple" authToken={authToken} isStaticMode={isStaticMode} isDemoMode={isDemoMode} />
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCheckAppleToken}
+                  disabled={appleTokenLoading}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-white/5 hover:bg-white/10 text-white border border-white/10 transition-all"
+                  title="Test native ES256 JWT generation and ping live Apple API"
+                >
+                  {appleTokenLoading ? <RefreshCw size={13} className="animate-spin" /> : <ShieldCheck size={13} className="text-accent-blue" />}
+                  <span>{appleTokenLoading ? 'Testing...' : 'Token Diagnostics'}</span>
+                </button>
+                <TestButton platform="apple" authToken={authToken} isStaticMode={isStaticMode} isDemoMode={isDemoMode} />
+              </div>
             </SectionHeader>
+
+            {appleTokenStatus && (
+              <div className={clsx(
+                "p-3.5 rounded-xl border text-xs space-y-2 animate-in fade-in duration-150",
+                appleTokenStatus.liveApiReachable
+                  ? "bg-emerald-950/40 border-emerald-500/30 text-emerald-200"
+                  : appleTokenStatus.configured
+                    ? "bg-amber-950/40 border-amber-500/30 text-amber-200"
+                    : "bg-rose-950/40 border-rose-500/30 text-rose-200"
+              )}>
+                <div className="flex items-center justify-between">
+                  <span className="font-bold flex items-center gap-1.5">
+                    {appleTokenStatus.liveApiReachable ? <CheckCircle2 size={14} className="text-emerald-400" /> : <AlertCircle size={14} />}
+                    {appleTokenStatus.liveApiReachable
+                      ? 'Apple API Reachable & Verified (200 OK)'
+                      : appleTokenStatus.configured
+                        ? `Token Generated, API Status: ${appleTokenStatus.statusCode || 'Unreachable'}`
+                        : 'Apple Token Not Configured'}
+                  </span>
+                  <button onClick={() => setAppleTokenStatus(null)} className="text-white/40 hover:text-white">✕</button>
+                </div>
+                {appleTokenStatus.tokenPreview && (
+                  <div className="font-mono text-[10px] bg-black/40 p-2 rounded-lg border border-white/5 break-all">
+                    JWT Preview: {appleTokenStatus.tokenPreview}
+                  </div>
+                )}
+                {appleTokenStatus.error && (
+                  <div className="text-rose-300 font-mono text-[11px]">{appleTokenStatus.error}</div>
+                )}
+              </div>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Field label="Key ID" hint="10-character key identifier">
                 <Input value={entry.appleKeyId} onChange={v => updateEntry('appleKeyId', v)} placeholder="e.g. 23L9X2Z6ZC" />
@@ -2021,6 +2198,135 @@ export default function Config({ authToken, isStaticMode, isDemoMode, fetchAiSta
                 <Coffee size={16} />
                 <span>Buy Me a Coffee</span>
               </a>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Team & Multi-Tenant Management ── */}
+      {activeTab === 'team' && (
+        <div className="space-y-6">
+          <div className="glass-card p-6 space-y-4">
+            <SectionHeader
+              icon={Users}
+              title="Team Members & Role-Based Access"
+              subtitle="Invite collaborators with Admin or Member privileges"
+            >
+              <button
+                onClick={fetchTeamMembers}
+                disabled={teamLoading}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-white/5 hover:bg-white/10 text-white border border-white/10 transition-all"
+              >
+                <RefreshCw size={12} className={clsx(teamLoading && "animate-spin")} />
+                Refresh
+              </button>
+            </SectionHeader>
+
+            {/* Invite New Member Form */}
+            <form onSubmit={handleCreateMember} className="bg-white/5 p-4 rounded-2xl border border-white/10 space-y-3">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-white/70 flex items-center gap-1.5">
+                <UserPlus size={14} className="text-accent-blue" />
+                Invite / Create New Team Member
+              </h4>
+
+              {memberActionMsg && (
+                <div className={clsx(
+                  "p-2.5 rounded-xl text-xs flex items-center gap-2",
+                  memberActionMsg.type === 'success' ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-400" : "bg-rose-500/10 border border-rose-500/20 text-rose-400"
+                )}>
+                  {memberActionMsg.type === 'success' ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
+                  <span>{memberActionMsg.text}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                <Field label="Email Address">
+                  <Input
+                    value={newMemberEmail}
+                    onChange={setNewMemberEmail}
+                    placeholder="teammate@company.com"
+                    type="email"
+                  />
+                </Field>
+                <Field label="Display Name">
+                  <Input
+                    value={newMemberName}
+                    onChange={setNewMemberName}
+                    placeholder="Jane Doe"
+                  />
+                </Field>
+                <Field label="Role">
+                  <select
+                    value={newMemberRole}
+                    onChange={(e) => setNewMemberRole(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-accent-blue"
+                  >
+                    <option value="member" className="bg-slate-900 text-white">Member (Read & ASO Access)</option>
+                    <option value="admin" className="bg-slate-900 text-white">Admin (Full Config & User Control)</option>
+                  </select>
+                </Field>
+                <Field label="Initial Password">
+                  <Input
+                    value={newMemberPassword}
+                    onChange={setNewMemberPassword}
+                    secret
+                    placeholder="Min 6 characters"
+                  />
+                </Field>
+              </div>
+
+              <div className="flex justify-end pt-1">
+                <button
+                  type="submit"
+                  disabled={teamLoading || !newMemberEmail.trim() || !newMemberPassword.trim()}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-accent-blue hover:bg-accent-blue/80 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-lg"
+                >
+                  <UserPlus size={13} />
+                  Add Member
+                </button>
+              </div>
+            </form>
+
+            {/* Team Members List Table */}
+            <div className="space-y-2 pt-2">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-white/50">Active Users ({teamMembers.length})</h4>
+              {teamMembers.length === 0 ? (
+                <div className="p-6 text-center text-xs text-white/40 bg-slate-900/40 rounded-xl border border-white/5">
+                  No individual team users added yet. The system is currently using default environment admin credentials.
+                </div>
+              ) : (
+                <div className="divide-y divide-white/5 rounded-2xl border border-white/10 bg-slate-900/40 overflow-hidden">
+                  {teamMembers.map((user) => (
+                    <div key={user.id} className="p-4 flex items-center justify-between gap-3 text-xs">
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-white">{user.name || user.email}</span>
+                          <span className={clsx(
+                            "px-2 py-0.5 rounded text-[10px] font-bold uppercase",
+                            user.role === 'admin' ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30" : "bg-white/10 text-white/60"
+                          )}>
+                            {user.role}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-white/40 font-mono">{user.email}</p>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <span className="text-[10px] text-white/30 hidden sm:inline">
+                          Added {user.created_at ? new Date(user.created_at).toLocaleDateString() : 'N/A'}
+                        </span>
+                        <button
+                          onClick={() => handleDeleteMember(user.id)}
+                          title="Remove user"
+                          className="p-1.5 text-white/40 hover:text-rose-400 rounded-lg hover:bg-rose-500/10 transition-all"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>

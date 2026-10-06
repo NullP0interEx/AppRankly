@@ -188,6 +188,13 @@ router.post('/aso/overview', (req, res) => {
       ORDER BY fetched_at DESC LIMIT 1
     `).get(packageName, platform);
 
+    const timeline = db.prepare(`
+      SELECT * FROM metadata_timeline
+      WHERE package_name = ? AND platform = ?
+      ORDER BY detected_at DESC
+      LIMIT 50
+    `).all(packageName, platform);
+
     res.json({
       keywords,
       ranks,
@@ -196,6 +203,7 @@ router.post('/aso/overview', (req, res) => {
       reviewThemes,
       lastAudit,
       listingSnapshot: latestSnapshot || null,
+      timeline: timeline || [],
       aiSpend: {
         totalCost: aiSpend.totalCost || 0,
         runCount: aiSpend.runCount || 0
@@ -322,6 +330,262 @@ router.post('/aso/ranks/check', async (req, res) => {
     });
   } catch (err) {
     console.error('Error running keyword rank check:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Add a new keyword manually to track
+ */
+router.post('/aso/keywords/add', (req, res) => {
+  const { packageName, platform = 'play', term } = req.body;
+  if (!packageName || !term || !term.trim()) {
+    return res.status(400).json({ error: 'packageName and term are required' });
+  }
+
+  const liveDb = dbModule.db;
+  if (!liveDb) return res.status(500).json({ error: 'Database unavailable' });
+
+  const cleanTerm = term.trim();
+  const normalized = cleanTerm.toLowerCase();
+
+  try {
+    liveDb.prepare(`
+      INSERT INTO aso_keyword (package_name, platform, term, normalized, source, tracked, added_at)
+      VALUES (?, ?, ?, ?, 'manual', 1, datetime('now'))
+      ON CONFLICT(package_name, platform, normalized) DO UPDATE SET tracked = 1
+    `).run(packageName, platform, cleanTerm, normalized);
+
+    const row = liveDb.prepare(`
+      SELECT * FROM aso_keyword WHERE package_name = ? AND platform = ? AND normalized = ?
+    `).get(packageName, platform, normalized);
+
+    res.json({ success: true, keyword: row });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Check live search rank for a single keyword
+ */
+router.post('/aso/keywords/check-single', async (req, res) => {
+  const { keywordId, packageName, platform = 'play', term, country = 'us' } = req.body;
+  if (!packageName || !term) return res.status(400).json({ error: 'packageName and term are required' });
+
+  const liveDb = dbModule.db;
+  if (!liveDb) return res.status(500).json({ error: 'Database unavailable' });
+
+  try {
+    const storeName = isApplePlatform(platform) ? 'apple' : 'play';
+    let foundRank = null;
+    const checkTime = new Date().toISOString();
+
+    if (storeName === 'play') {
+      const searchRes = await scraper.getPlaySearch(term, 50, country);
+      const idx = searchRes.findIndex(item => item.appId === packageName);
+      if (idx !== -1) foundRank = idx + 1;
+    } else {
+      const searchRes = await scraper.getAppleSearch(term, country, 50);
+      const idx = searchRes.findIndex(item => item.bundleId === packageName || String(item.trackId) === String(packageName));
+      if (idx !== -1) foundRank = idx + 1;
+    }
+
+    if (keywordId) {
+      liveDb.prepare(`
+        INSERT OR REPLACE INTO aso_rank_history (package_name, platform, keyword_id, store, country, rank, top_n, checked_at)
+        VALUES (?, ?, ?, ?, ?, ?, 50, ?)
+      `).run(packageName, platform, keywordId, storeName, country, foundRank, checkTime);
+    }
+
+    res.json({
+      success: true,
+      term,
+      rank: foundRank,
+      topN: 50,
+      checkedAt: checkTime
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Delete a tracked keyword
+ */
+router.delete('/aso/keywords/:id', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const liveDb = dbModule.db;
+  if (!liveDb || !id) return res.status(400).json({ error: 'Valid keyword ID required' });
+
+  try {
+    liveDb.prepare('DELETE FROM aso_rank_history WHERE keyword_id = ?').run(id);
+    liveDb.prepare('DELETE FROM aso_keyword WHERE id = ?').run(id);
+    res.json({ success: true, id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Manually add a competitor to track
+ */
+router.post('/aso/competitors/add', async (req, res) => {
+  const { packageName, platform = 'play', competitorPackage } = req.body;
+  if (!packageName || !competitorPackage) {
+    return res.status(400).json({ error: 'packageName and competitorPackage are required' });
+  }
+
+  const liveDb = dbModule.db;
+  if (!liveDb) return res.status(500).json({ error: 'Database unavailable' });
+
+  try {
+    const isApple = isApplePlatform(platform);
+    let compData = null;
+    if (isApple) {
+      compData = await scraper.getAppleLookup(competitorPackage);
+    } else {
+      compData = await scraper.getPlayListing(competitorPackage);
+    }
+
+    const title = compData?.title || compData?.trackName || competitorPackage;
+    const shortDesc = compData?.summary || compData?.subtitle || '';
+    const rating = compData?.score || 0;
+    const installsText = compData?.installs || '';
+    const developer = compData?.developer || '';
+    const category = compData?.category || '';
+    const iconUrl = compData?.icon || '';
+    const store = isApple ? 'apple' : 'play';
+    const compKey = compData?.appId || compData?.bundleId || competitorPackage;
+
+    liveDb.prepare(`
+      INSERT INTO aso_competitor (
+        package_name, platform, store, competitor_key, title, short_desc, rating, installs_text, developer, category, icon_url, pinned, fetched_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, datetime('now'))
+      ON CONFLICT(package_name, platform, store, competitor_key) DO UPDATE SET
+        title = excluded.title, short_desc = excluded.short_desc, rating = excluded.rating,
+        installs_text = excluded.installs_text, developer = excluded.developer,
+        icon_url = excluded.icon_url, pinned = 1, fetched_at = datetime('now')
+    `).run(packageName, platform, store, compKey, title, shortDesc, rating, installsText, developer, category, iconUrl);
+
+    res.json({
+      success: true,
+      competitor: {
+        package_name: packageName,
+        platform,
+        competitor_key: compKey,
+        title,
+        short_desc: shortDesc,
+        rating,
+        installs_text: installsText,
+        developer,
+        category,
+        icon_url: iconUrl,
+        pinned: 1
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Remove a tracked competitor
+ */
+router.delete('/aso/competitors/:competitorKey', (req, res) => {
+  const competitorKey = req.params.competitorKey;
+  const { packageName, platform = 'play' } = req.query;
+  const liveDb = dbModule.db;
+  if (!liveDb || !competitorKey || !packageName) {
+    return res.status(400).json({ error: 'competitorKey and packageName required' });
+  }
+
+  try {
+    liveDb.prepare(`
+      DELETE FROM aso_competitor
+      WHERE package_name = ? AND platform = ? AND competitor_key = ?
+    `).run(packageName, platform, competitorKey);
+    res.json({ success: true, competitorKey });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Metadata Change Timeline endpoints
+ */
+function recordMetadataSnapshot(packageName, platform, metadata) {
+  const liveDb = dbModule.db;
+  if (!liveDb || !metadata || !packageName) return;
+  try {
+    const latest = liveDb.prepare(`
+      SELECT * FROM metadata_timeline
+      WHERE package_name = ? AND platform = ?
+      ORDER BY detected_at DESC LIMIT 1
+    `).get(packageName, platform);
+
+    const currVersion = metadata.version || '';
+    const currTitle = metadata.title || metadata.trackName || '';
+    const currWhatsNew = metadata.recentChanges || metadata.releaseNotes || '';
+    const currDesc = metadata.description ? metadata.description.slice(0, 500) : '';
+
+    if (!latest || latest.version !== currVersion || latest.title !== currTitle || latest.whats_new !== currWhatsNew) {
+      liveDb.prepare(`
+        INSERT INTO metadata_timeline (
+          package_name, platform, version, title, short_desc, subtitle, description, whats_new, score, ratings, detected_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      `).run(
+        packageName,
+        platform,
+        currVersion,
+        currTitle,
+        metadata.summary || metadata.shortDescription || '',
+        metadata.subtitle || '',
+        currDesc,
+        currWhatsNew,
+        metadata.score || 0,
+        metadata.ratings || metadata.reviews || 0
+      );
+    }
+  } catch (err) {
+    console.warn('[Timeline] Snapshot recording error:', err.message);
+  }
+}
+
+router.get('/aso/timeline', (req, res) => {
+  const { packageName, platform = 'play' } = req.query;
+  const liveDb = dbModule.db;
+  if (!liveDb || !packageName) return res.status(400).json({ error: 'packageName is required' });
+
+  try {
+    const timeline = liveDb.prepare(`
+      SELECT * FROM metadata_timeline
+      WHERE package_name = ? AND platform = ?
+      ORDER BY detected_at DESC
+      LIMIT 100
+    `).all(packageName, platform);
+    res.json({ timeline });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/aso/timeline/snapshot', async (req, res) => {
+  const { packageName, platform = 'play', metadata } = req.body;
+  if (!packageName) return res.status(400).json({ error: 'packageName is required' });
+
+  try {
+    let data = metadata;
+    if (!data) {
+      data = isApplePlatform(platform)
+        ? await scraper.getAppleLookup(packageName)
+        : await scraper.getPlayListing(packageName);
+    }
+    if (data) {
+      recordMetadataSnapshot(packageName, platform, data);
+    }
+    res.json({ success: true, metadata: data });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });

@@ -26,18 +26,38 @@ function aggregateOverviews(overviewsWithNames) {
 
     if (key && curr.dailyTrends) {
       const trendEntry = {
-        name: item.name || key,
+        name: item.name || item.displayName || key,
         packageName: item.packageName || key,
         platform: plat,
-        dailyTrends: curr.dailyTrends
+        dailyTrends: curr.dailyTrends,
+        trends: curr.dailyTrends
       };
 
       appTrendsMap[`${plat}:${key}`] = trendEntry;
+      if (item.name && item.name !== key) {
+        appTrendsMap[`${plat}:${item.name}`] = trendEntry;
+      }
+      if (item.displayName && item.displayName !== key && item.displayName !== item.name) {
+        appTrendsMap[`${plat}:${item.displayName}`] = trendEntry;
+      }
+      if (item.bundleId && item.bundleId !== key) {
+        appTrendsMap[`${plat}:${item.bundleId}`] = trendEntry;
+      }
 
       if (!appTrendsMap[key]) {
         appTrendsMap[key] = trendEntry;
       } else if (appTrendsMap[key].platform !== plat) {
         delete appTrendsMap[key];
+      }
+
+      if (item.name && !appTrendsMap[item.name]) {
+        appTrendsMap[item.name] = trendEntry;
+      }
+      if (item.displayName && !appTrendsMap[item.displayName]) {
+        appTrendsMap[item.displayName] = trendEntry;
+      }
+      if (item.bundleId && !appTrendsMap[item.bundleId]) {
+        appTrendsMap[item.bundleId] = trendEntry;
       }
     }
 

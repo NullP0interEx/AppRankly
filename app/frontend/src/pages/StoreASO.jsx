@@ -4,7 +4,7 @@ import {
   TrendingUp, Key, Globe, Shield, RefreshCw, Copy, Plus, AlertCircle, Bot,
   Users, MessageSquare, Sliders, CheckSquare, BookOpen, Info, HelpCircle, Zap,
   BarChart2, ArrowRight, ChevronDown, ChevronUp, Layers, AlertTriangle, FileText,
-  LayoutGrid, Star, Target, Calendar, Award
+  LayoutGrid, Star, Target, Calendar, Award, Trash2, Camera, Check
 } from 'lucide-react';
 import MetricCard from '../components/MetricCard';
 import PortfolioAsoScores from '../components/PortfolioAsoScores';
@@ -215,6 +215,21 @@ export default function StoreASO({ stats, isDemoMode, projects = [], selectedPro
   const [weeklyVelocity, setWeeklyVelocity] = useState(5);
   const [customRatingInput, setCustomRatingInput] = useState(null);
   const [customRatingsCountInput, setCustomRatingsCountInput] = useState(null);
+
+  // Live Keyword Rank Tracking State (v2.0.0)
+  const [newKeywordInput, setNewKeywordInput] = useState('');
+  const [singleRankChecking, setSingleRankChecking] = useState({});
+
+  // Manual Competitor Tracking State (v1.6.0)
+  const [newCompetitorInput, setNewCompetitorInput] = useState('');
+  const [addingCompetitor, setAddingCompetitor] = useState(false);
+
+  // Negative Review Alert Scan State (v1.6.0)
+  const [reviewScanLoading, setReviewScanLoading] = useState(false);
+  const [reviewScanResult, setReviewScanResult] = useState(null);
+
+  // Metadata Change Timeline State (v1.6.0)
+  const [timelineLoading, setTimelineLoading] = useState(false);
 
   // Compute live impressions, page views, downloads from selected app stats
   const impressions = stats?.storeImpressions ?? (isDemoMode ? 4520 : 0);
@@ -618,6 +633,180 @@ export default function StoreASO({ stats, isDemoMode, projects = [], selectedPro
     }
   };
 
+  const handleAddKeyword = async (e) => {
+    e?.preventDefault();
+    if (!newKeywordInput.trim()) return;
+    const term = newKeywordInput.trim();
+    if (isDemoMode) {
+      setAsoData(prev => ({
+        ...prev,
+        keywords: [{ id: Date.now(), term, tracked: 1, rank: Math.floor(Math.random() * 12) + 1 }, ...(prev?.keywords || [])]
+      }));
+      setNewKeywordInput('');
+      return;
+    }
+    try {
+      const res = await apiFetch('/api/aso/keywords/add', {
+        method: 'POST',
+        body: JSON.stringify({ packageName, platform: effectivePlatform, term })
+      }, authToken);
+      if (res.ok) {
+        setNewKeywordInput('');
+        fetchAsoOverview();
+      }
+    } catch (err) {
+      console.warn('Error adding keyword:', err.message);
+    }
+  };
+
+  const handleCheckSingleRank = async (kw) => {
+    setSingleRankChecking(prev => ({ ...prev, [kw.id || kw.term]: true }));
+    if (isDemoMode) {
+      setTimeout(() => {
+        setAsoData(prev => ({
+          ...prev,
+          keywords: (prev?.keywords || []).map(k => k.id === kw.id ? { ...k, rank: Math.floor(Math.random() * 10) + 1 } : k)
+        }));
+        setSingleRankChecking(prev => ({ ...prev, [kw.id || kw.term]: false }));
+      }, 500);
+      return;
+    }
+    try {
+      const res = await apiFetch('/api/aso/keywords/check-single', {
+        method: 'POST',
+        body: JSON.stringify({
+          keywordId: kw.id,
+          packageName,
+          platform: effectivePlatform,
+          term: kw.term
+        })
+      }, authToken);
+      if (res.ok) {
+        const data = await res.json();
+        setAsoData(prev => ({
+          ...prev,
+          keywords: (prev?.keywords || []).map(k => k.id === kw.id ? { ...k, rank: data.rank } : k)
+        }));
+      }
+    } catch (err) {
+      console.warn('Rank check error:', err.message);
+    } finally {
+      setSingleRankChecking(prev => ({ ...prev, [kw.id || kw.term]: false }));
+    }
+  };
+
+  const handleDeleteKeyword = async (id) => {
+    if (isDemoMode) {
+      setAsoData(prev => ({ ...prev, keywords: (prev?.keywords || []).filter(k => k.id !== id) }));
+      return;
+    }
+    try {
+      const res = await apiFetch(`/api/aso/keywords/${id}`, { method: 'DELETE' }, authToken);
+      if (res.ok) {
+        setAsoData(prev => ({ ...prev, keywords: (prev?.keywords || []).filter(k => k.id !== id) }));
+      }
+    } catch (err) {
+      console.warn('Delete keyword error:', err.message);
+    }
+  };
+
+  const handleAddCompetitor = async (e) => {
+    e?.preventDefault();
+    if (!newCompetitorInput.trim()) return;
+    const compPkg = newCompetitorInput.trim();
+    setAddingCompetitor(true);
+    if (isDemoMode) {
+      setTimeout(() => {
+        setAsoData(prev => ({
+          ...prev,
+          competitors: [{
+            title: compPkg,
+            competitor_key: compPkg,
+            score: 4.4,
+            installs: '100K+',
+            developer: 'Competitor Studio',
+            pinned: 1
+          }, ...(prev?.competitors || [])]
+        }));
+        setNewCompetitorInput('');
+        setAddingCompetitor(false);
+      }, 500);
+      return;
+    }
+    try {
+      const res = await apiFetch('/api/aso/competitors/add', {
+        method: 'POST',
+        body: JSON.stringify({ packageName, platform: effectivePlatform, competitorPackage: compPkg })
+      }, authToken);
+      if (res.ok) {
+        setNewCompetitorInput('');
+        fetchAsoOverview();
+      }
+    } catch (err) {
+      console.warn('Add competitor error:', err.message);
+    } finally {
+      setAddingCompetitor(false);
+    }
+  };
+
+  const handleDeleteCompetitor = async (competitorKey) => {
+    if (isDemoMode) {
+      setAsoData(prev => ({ ...prev, competitors: (prev?.competitors || []).filter(c => c.competitor_key !== competitorKey) }));
+      return;
+    }
+    try {
+      const res = await apiFetch(`/api/aso/competitors/${encodeURIComponent(competitorKey)}?packageName=${encodeURIComponent(packageName)}&platform=${effectivePlatform}`, { method: 'DELETE' }, authToken);
+      if (res.ok) {
+        setAsoData(prev => ({ ...prev, competitors: (prev?.competitors || []).filter(c => c.competitor_key !== competitorKey) }));
+      }
+    } catch (err) {
+      console.warn('Delete competitor error:', err.message);
+    }
+  };
+
+  const handleScanNegativeReviews = async () => {
+    setReviewScanLoading(true);
+    setReviewScanResult(null);
+    if (isDemoMode) {
+      setTimeout(() => {
+        setReviewScanResult({ newAlertsCount: 0, message: 'All recent 1-2★ reviews already alerted to Webhook.' });
+        setReviewScanLoading(false);
+      }, 500);
+      return;
+    }
+    try {
+      const res = await apiFetch('/api/aso/reviews/scan-negative', {
+        method: 'POST',
+        body: JSON.stringify({ packageName, platform: effectivePlatform, displayName: activeProject?.name || packageName })
+      }, authToken);
+      if (res.ok) {
+        const data = await res.json();
+        setReviewScanResult(data);
+      }
+    } catch (err) {
+      setReviewScanResult({ error: err.message });
+    } finally {
+      setReviewScanLoading(false);
+    }
+  };
+
+  const handleSnapshotTimeline = async () => {
+    setTimelineLoading(true);
+    try {
+      const res = await apiFetch('/api/aso/timeline/snapshot', {
+        method: 'POST',
+        body: JSON.stringify({ packageName, platform: effectivePlatform })
+      }, authToken);
+      if (res.ok) {
+        fetchAsoOverview();
+      }
+    } catch (err) {
+      console.warn('Snapshot error:', err.message);
+    } finally {
+      setTimelineLoading(false);
+    }
+  };
+
   const toggleActionItem = (id) => {
     setActionItems(prev => prev.map(item => item.id === id ? { ...item, status: item.status === 'completed' ? 'pending' : 'completed' } : item));
   };
@@ -780,8 +969,9 @@ export default function StoreASO({ stats, isDemoMode, projects = [], selectedPro
         {[
           { id: 'audit', label: 'Overview & Audit', icon: Shield, badge: asoData?.lastAudit ? `${asoData.lastAudit.score}/100` : null },
           { id: 'keywords', label: 'Keyword Discovery', icon: Search, badge: (asoData?.keywords || []).length },
-          { id: 'competitors', label: 'Competitor Gap', icon: Users, badge: (asoData?.competitorGaps || []).length },
+          { id: 'competitors', label: 'Competitor Gap', icon: Users, badge: (asoData?.competitors || []).length },
           { id: 'reviews', label: 'Review Sentiment', icon: MessageSquare, badge: (asoData?.reviewThemes || []).length },
+          { id: 'timeline', label: 'Metadata Timeline', icon: Calendar, badge: (asoData?.timeline || []).length || null },
           { id: 'builder', label: 'Metadata Builder', icon: FileText, badge: 'Live Limits' },
           { id: 'action_plan', label: 'Action Plan', icon: CheckSquare, badge: `${actionItems.filter(i => i.status === 'completed').length}/${actionItems.length}` }
         ].map((tab) => {
@@ -1230,28 +1420,46 @@ export default function StoreASO({ stats, isDemoMode, projects = [], selectedPro
                 <p className="text-xs text-slate-400">Discover real user query terms via zero-cost store autocomplete mining.</p>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <form onSubmit={handleAddKeyword} className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    placeholder="+ Add target keyword..."
+                    value={newKeywordInput}
+                    onChange={(e) => setNewKeywordInput(e.target.value)}
+                    className="bg-slate-900 border border-indigo-500/30 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 outline-none focus:border-indigo-400 w-44"
+                  />
+                  <button
+                    type="submit"
+                    className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow"
+                  >
+                    Add
+                  </button>
+                </form>
+
+                <div className="h-6 w-px bg-white/10 mx-1 hidden sm:block" />
+
                 <button
                   onClick={handleCheckKeywordRanks}
                   disabled={rankChecking}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-lg flex items-center gap-1.5"
+                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-lg flex items-center gap-1.5"
                 >
                   {rankChecking ? <RefreshCw size={14} className="animate-spin" /> : <TrendingUp size={14} />}
-                  <span>{rankChecking ? 'Checking Ranks...' : 'Check Ranks'}</span>
+                  <span>{rankChecking ? 'Checking...' : 'Check All'}</span>
                 </button>
                 <input
                   type="text"
-                  placeholder="Seed term (e.g. tracker)..."
+                  placeholder="Seed term (a-z)..."
                   value={seedKeyword}
                   onChange={(e) => setSeedKeyword(e.target.value)}
-                  className="bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 outline-none focus:border-accent-blue"
+                  className="bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 outline-none focus:border-accent-blue w-32"
                 />
                 <button
                   onClick={handleExpandKeywords}
                   disabled={loading}
-                  className="px-4 py-2 bg-accent-blue hover:bg-blue-600 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-lg"
+                  className="px-3.5 py-2 bg-accent-blue hover:bg-blue-600 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-lg"
                 >
-                  Expand (a-z)
+                  Expand
                 </button>
               </div>
             </div>
@@ -1261,12 +1469,12 @@ export default function StoreASO({ stats, isDemoMode, projects = [], selectedPro
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 font-bold text-white">
                   <AlertCircle size={14} className="text-blue-400" />
-                  Popularity Proxy & Store Rank Checking
+                  Popularity Proxy & Live Search Rank Tracker (v2.0.0)
                 </div>
-                <span className="text-[10px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded font-mono">Free Engine</span>
+                <span className="text-[10px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded font-mono">Store Search API</span>
               </div>
               <p className="text-[11px] text-blue-200/80 leading-relaxed">
-                Est. Popularity Proxy (0-100) is calculated from autocomplete verification (+40), seed intent (+15), and term conciseness (+15). Click <strong>Check Ranks</strong> to scrape live store search top 50 rankings for all tracked terms.
+                Add target terms or expand seeds via zero-cost autocomplete. Click <strong>Check All</strong> or the per-keyword <strong><TrendingUp size={11} className="inline mx-0.5" /></strong> button to poll live store search rankings up to top 50.
               </p>
             </div>
 
@@ -1279,7 +1487,7 @@ export default function StoreASO({ stats, isDemoMode, projects = [], selectedPro
                     <th className="py-3 px-4">Est. Popularity (Proxy)</th>
                     <th className="py-3 px-4">Current Rank</th>
                     <th className="py-3 px-4">Status / Opportunity</th>
-                    <th className="py-3 px-4 text-right">Tracked</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5">
@@ -1320,7 +1528,7 @@ export default function StoreASO({ stats, isDemoMode, projects = [], selectedPro
                         </td>
                         <td className="py-3 px-4">
                           {currentRank ? (
-                            <span className="font-mono font-extrabold text-accent-blue">#{currentRank}</span>
+                            <span className="font-mono font-extrabold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">#{currentRank}</span>
                           ) : (
                             <span className="text-slate-500 text-[10px] font-mono">&gt; 50 (Unranked)</span>
                           )}
@@ -1331,23 +1539,40 @@ export default function StoreASO({ stats, isDemoMode, projects = [], selectedPro
                           </span>
                         </td>
                         <td className="py-3 px-4 text-right">
-                          <button
-                            onClick={async () => {
-                              if (!isDemoMode) {
-                                await apiFetch('/api/aso/keywords/track', {
-                                  method: 'POST',
-                                  body: JSON.stringify({ packageName, platform, keywordId: kw.id, tracked: !kw.tracked })
-                                }, authToken);
-                              }
-                              setAsoData(prev => ({
-                                ...prev,
-                                keywords: prev.keywords.map(k => k.id === kw.id ? { ...k, tracked: !k.tracked } : k)
-                              }));
-                            }}
-                            className={`px-3 py-1 rounded-lg text-[10px] font-bold transition-all ${kw.tracked ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
-                          >
-                            {kw.tracked ? 'Tracking' : 'Track'}
-                          </button>
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => handleCheckSingleRank(kw)}
+                              disabled={singleRankChecking[kw.id || kw.term]}
+                              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+                              title="Check live search rank position"
+                            >
+                              {singleRankChecking[kw.id || kw.term] ? <RefreshCw size={12} className="animate-spin text-accent-blue" /> : <TrendingUp size={12} />}
+                            </button>
+                            <button
+                              onClick={async () => {
+                                if (!isDemoMode) {
+                                  await apiFetch('/api/aso/keywords/track', {
+                                    method: 'POST',
+                                    body: JSON.stringify({ packageName, platform, keywordId: kw.id, tracked: !kw.tracked })
+                                  }, authToken);
+                                }
+                                setAsoData(prev => ({
+                                  ...prev,
+                                  keywords: prev.keywords.map(k => k.id === kw.id ? { ...k, tracked: !k.tracked } : k)
+                                }));
+                              }}
+                              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${kw.tracked ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
+                            >
+                              {kw.tracked ? 'Tracking' : 'Track'}
+                            </button>
+                            <button
+                              onClick={() => handleDeleteKeyword(kw.id)}
+                              className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition-colors"
+                              title="Delete keyword"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -1408,39 +1633,68 @@ export default function StoreASO({ stats, isDemoMode, projects = [], selectedPro
           </div>
 
           <div className="glass-card p-6 border border-white/10 space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h2 className="text-lg font-bold text-white flex items-center gap-2">
                   <Users className="text-purple-400" size={20} />
                   Category Competitor Intelligence & Keyword Gaps
                 </h2>
-                <p className="text-xs text-slate-400">Scrape competitor listings and extract missing search terms & value hooks.</p>
+                <p className="text-xs text-slate-400">Track competitors, scrape listings, and extract missing search terms & value hooks.</p>
               </div>
 
-              <button
-                onClick={handleRunCompetitorAnalysis}
-                disabled={compLoading}
-                className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg"
-              >
-                {compLoading ? <RefreshCw size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                {compLoading ? 'Analyzing Competitors...' : 'Run Gap Analysis'}
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <form onSubmit={handleAddCompetitor} className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    placeholder="Competitor Bundle/Package..."
+                    value={newCompetitorInput}
+                    onChange={(e) => setNewCompetitorInput(e.target.value)}
+                    className="bg-slate-900/80 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 w-44 font-mono"
+                  />
+                  <button
+                    type="submit"
+                    disabled={addingCompetitor || !newCompetitorInput.trim()}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all"
+                  >
+                    {addingCompetitor ? <RefreshCw size={12} className="animate-spin" /> : <Plus size={12} />}
+                    Track
+                  </button>
+                </form>
+
+                <button
+                  onClick={handleRunCompetitorAnalysis}
+                  disabled={compLoading}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-purple-300 border border-purple-500/30 rounded-xl text-xs font-bold transition-all shadow-lg"
+                >
+                  {compLoading ? <RefreshCw size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                  {compLoading ? 'Analyzing...' : 'Run Gap Analysis'}
+                </button>
+              </div>
             </div>
 
             {/* Competitor Benchmarks Grid */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {(asoData?.competitors || []).map((comp, idx) => (
                 <div key={idx} className="bg-slate-900/60 p-4 rounded-2xl border border-white/10 space-y-2">
-                  <div className="flex items-center gap-3">
-                    <img src={comp.icon} alt={comp.title} className="w-10 h-10 rounded-xl object-cover border border-white/10" />
-                    <div className="truncate">
-                      <h4 className="text-xs font-bold text-white truncate">{comp.title}</h4>
-                      <p className="text-[10px] text-slate-400">{comp.developer}</p>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5 truncate">
+                      <img src={comp.icon || comp.icon_url || 'https://via.placeholder.com/48'} alt={comp.title} className="w-9 h-9 rounded-xl object-cover border border-white/10 shrink-0" />
+                      <div className="truncate">
+                        <h4 className="text-xs font-bold text-white truncate">{comp.title}</h4>
+                        <p className="text-[10px] text-slate-400 truncate">{comp.competitor_key || comp.developer}</p>
+                      </div>
                     </div>
+                    <button
+                      onClick={() => handleDeleteCompetitor(comp.competitor_key || comp.packageName || comp.title)}
+                      title="Remove tracked competitor"
+                      className="text-slate-500 hover:text-rose-400 p-1 rounded-lg transition-colors shrink-0"
+                    >
+                      <Trash2 size={13} />
+                    </button>
                   </div>
                   <div className="flex items-center justify-between text-[11px] text-slate-300 pt-1 border-t border-white/5">
                     <span>Rating: <strong className="text-amber-400">{comp.score}★</strong></span>
-                    <span>Installs: <strong className="text-emerald-400">{comp.installs}</strong></span>
+                    <span>Installs: <strong className="text-emerald-400">{comp.installs || '50K+'}</strong></span>
                   </div>
                 </div>
               ))}
@@ -1683,7 +1937,7 @@ export default function StoreASO({ stats, isDemoMode, projects = [], selectedPro
           </div>
 
           <div className="glass-card p-6 border border-white/10 space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h2 className="text-lg font-bold text-white flex items-center gap-2">
                   <MessageSquare className="text-emerald-400" size={20} />
@@ -1692,15 +1946,52 @@ export default function StoreASO({ stats, isDemoMode, projects = [], selectedPro
                 <p className="text-xs text-slate-400">Extract positive feedback, feature requests, and issue clusters with AI response drafting.</p>
               </div>
 
-              <button
-                onClick={handleSyncReviews}
-                disabled={reviewsLoading}
-                className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg"
-              >
-                {reviewsLoading ? <RefreshCw size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                {reviewsLoading ? 'Syncing Reviews...' : 'Sync & Digest Reviews'}
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={handleScanNegativeReviews}
+                  disabled={reviewScanLoading}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-rose-600/90 hover:bg-rose-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-lg"
+                  title="Scan recent reviews for 1-2★ ratings and trigger automated alert webhook"
+                >
+                  {reviewScanLoading ? <RefreshCw size={13} className="animate-spin" /> : <AlertTriangle size={13} />}
+                  {reviewScanLoading ? 'Scanning...' : 'Scan 1-2★ Alerts'}
+                </button>
+
+                <button
+                  onClick={handleSyncReviews}
+                  disabled={reviewsLoading}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg"
+                >
+                  {reviewsLoading ? <RefreshCw size={13} className="animate-spin" /> : <Sparkles size={13} />}
+                  {reviewsLoading ? 'Syncing Reviews...' : 'Sync & Digest Reviews'}
+                </button>
+              </div>
             </div>
+
+            {/* Negative Review Alert Result Banner */}
+            {reviewScanResult && (
+              <div className={clsx(
+                "p-3.5 rounded-xl border text-xs flex items-center justify-between gap-3 animate-in fade-in duration-150",
+                reviewScanResult.error
+                  ? "bg-rose-950/40 border-rose-500/30 text-rose-300"
+                  : "bg-emerald-950/40 border-emerald-500/30 text-emerald-300"
+              )}>
+                <div className="flex items-center gap-2">
+                  {reviewScanResult.error ? <AlertTriangle size={15} /> : <CheckCircle size={15} />}
+                  <span>
+                    {reviewScanResult.error
+                      ? reviewScanResult.error
+                      : `Automated Scan Complete: Dispatched ${reviewScanResult.newAlertsCount ?? 0} new negative (1-2★) review alert(s) to Telegram & Webhook.`}
+                  </span>
+                </div>
+                <button
+                  onClick={() => setReviewScanResult(null)}
+                  className="text-slate-400 hover:text-white text-xs font-bold px-2 py-0.5 rounded bg-white/5"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
 
             {/* Feedback Themes Grid */}
             {(!asoData?.reviewThemes || asoData.reviewThemes.length === 0) ? (
@@ -2017,6 +2308,94 @@ export default function StoreASO({ stats, isDemoMode, projects = [], selectedPro
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 7: METADATA CHANGE TIMELINE */}
+      {activeTab === 'timeline' && (
+        <div className="space-y-6 animate-in fade-in duration-150">
+          <div className="bg-sky-900/30 border border-sky-500/20 rounded-2xl p-4 text-xs text-sky-200 space-y-1">
+            <div className="flex items-center gap-2 font-bold text-white">
+              <Calendar size={16} className="text-sky-400" />
+              App Store & Google Play Metadata Change Timeline
+            </div>
+            <p className="text-[11px] text-sky-200/80 leading-relaxed">
+              Track chronological listing changes across app versions, release notes (What's New), and title iterations. Comparing release dates against download rank movements isolates exactly which metadata tweaks drove organic ranking gains.
+            </p>
+          </div>
+
+          <div className="glass-card p-6 border border-white/10 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Calendar className="text-sky-400" size={20} />
+                  Metadata & Release History Log
+                </h2>
+                <p className="text-xs text-slate-400">Chronological snapshots of listing titles, version strings, what's new, and store scores.</p>
+              </div>
+
+              <button
+                onClick={handleSnapshotTimeline}
+                disabled={timelineLoading}
+                className="flex items-center gap-2 px-4 py-2 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-lg shrink-0"
+              >
+                {timelineLoading ? <RefreshCw size={14} className="animate-spin" /> : <Camera size={14} />}
+                {timelineLoading ? 'Capturing Snapshot...' : 'Snapshot Current Metadata'}
+              </button>
+            </div>
+
+            {(!asoData?.timeline || asoData.timeline.length === 0) ? (
+              <div className="bg-slate-900/60 rounded-2xl border border-white/10 p-8 text-center space-y-3">
+                <Calendar size={32} className="mx-auto text-sky-400/60" />
+                <h3 className="text-sm font-bold text-white">No Metadata Snapshots Recorded Yet</h3>
+                <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
+                  Click <strong>"Snapshot Current Metadata"</strong> to record your current store title, version, and release notes in the change history ledger.
+                </p>
+              </div>
+            ) : (
+              <div className="relative border-l border-white/10 ml-4 space-y-6 pl-6 py-2">
+                {asoData.timeline.map((entry, idx) => (
+                  <div key={idx} className="relative group">
+                    <div className="absolute -left-[31px] top-1.5 w-4 h-4 rounded-full bg-sky-500 border-2 border-slate-900 ring-2 ring-sky-500/30" />
+                    
+                    <div className="bg-slate-900/60 p-5 rounded-2xl border border-white/10 space-y-3 hover:border-sky-500/30 transition-all">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2.5">
+                          <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-sky-500/20 text-sky-300 border border-sky-500/30 font-mono">
+                            v{entry.version || '1.0.0'}
+                          </span>
+                          <span className="text-xs font-bold text-white">
+                            {entry.title || packageName}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 text-[11px] text-slate-400">
+                          {entry.score && (
+                            <span className="text-amber-400 font-bold">{entry.score}★</span>
+                          )}
+                          <span className="font-mono">
+                            {entry.detected_at ? new Date(entry.detected_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Recent'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {entry.whats_new && (
+                        <div className="bg-white/5 p-3 rounded-xl border border-white/5 space-y-1">
+                          <div className="text-[10px] uppercase font-bold text-slate-400">What's New in this Version</div>
+                          <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-line">{entry.whats_new}</p>
+                        </div>
+                      )}
+
+                      {entry.short_desc && (
+                        <div className="text-xs text-slate-400">
+                          <strong className="text-slate-300">Short Description / Subtitle:</strong> {entry.short_desc}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

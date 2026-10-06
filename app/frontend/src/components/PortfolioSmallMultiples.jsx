@@ -32,14 +32,43 @@ export default function PortfolioSmallMultiples({ projects = [], appTrends = {},
     const getTrendArray = (platFilter, ...keys) => {
       for (const k of keys) {
         if (!k) continue;
-        if (platFilter && appTrends[`${platFilter}:${k}`]) {
-          const entry = appTrends[`${platFilter}:${k}`];
-          return entry.trends || (Array.isArray(entry) ? entry : []);
+        const normalizedK = String(k).trim();
+        if (!normalizedK) continue;
+
+        // 1. Try platform-prefixed key
+        if (platFilter && platFilter !== 'all') {
+          const prefKey = `${platFilter}:${normalizedK}`;
+          if (appTrends[prefKey]) {
+            const entry = appTrends[prefKey];
+            const data = entry?.dailyTrends || entry?.trends || (Array.isArray(entry) ? entry : []);
+            if (data.length > 0) return data;
+          }
         }
-        if (appTrends[k]) {
-          const entry = appTrends[k];
-          if (!platFilter || entry.platform === platFilter || !entry.platform) {
-            return entry.trends || (Array.isArray(entry) ? entry : []);
+
+        // 2. Try exact bare key
+        if (appTrends[normalizedK]) {
+          const entry = appTrends[normalizedK];
+          if (!platFilter || platFilter === 'all' || entry?.platform === platFilter || !entry?.platform) {
+            const data = entry?.dailyTrends || entry?.trends || (Array.isArray(entry) ? entry : []);
+            if (data.length > 0) return data;
+          }
+        }
+
+        // 3. Fallback: check google / apple prefix if platFilter is unknown or 'all'
+        if (!platFilter || platFilter === 'all' || platFilter === 'google') {
+          const gKey = `google:${normalizedK}`;
+          if (appTrends[gKey]) {
+            const entry = appTrends[gKey];
+            const data = entry?.dailyTrends || entry?.trends || (Array.isArray(entry) ? entry : []);
+            if (data.length > 0) return data;
+          }
+        }
+        if (!platFilter || platFilter === 'all' || platFilter === 'apple') {
+          const aKey = `apple:${normalizedK}`;
+          if (appTrends[aKey]) {
+            const entry = appTrends[aKey];
+            const data = entry?.dailyTrends || entry?.trends || (Array.isArray(entry) ? entry : []);
+            if (data.length > 0) return data;
           }
         }
       }
@@ -49,15 +78,32 @@ export default function PortfolioSmallMultiples({ projects = [], appTrends = {},
     let gEntry = [];
     let aEntry = [];
 
-    if (proj.isMerged && (proj.googleApp || proj.appleApp)) {
-      gEntry = getTrendArray('google', proj.googlePackageName, proj.googleApp?.packageName, proj.googleApp?.name);
-      aEntry = getTrendArray('apple', proj.appleBundleId, proj.appleApp?.bundleId, proj.appleApp?.packageName, proj.appleApp?.name);
+    if (proj.isMerged) {
+      gEntry = getTrendArray('google',
+        proj.googlePackageName,
+        proj.googleApp?.packageName,
+        proj.googleApp?.name,
+        proj.packageName,
+        proj.name
+      );
+      aEntry = getTrendArray('apple',
+        proj.appleBundleId,
+        proj.appleApp?.bundleId,
+        proj.appleApp?.packageName,
+        proj.appleApp?.name,
+        proj.bundleId,
+        proj.packageName,
+        proj.name
+      );
     } else {
-      const trendData = getTrendArray(proj.platform, proj.packageName, proj.bundleId, proj.name);
+      const trendData = getTrendArray(proj.platform, proj.packageName, proj.bundleId, proj.name, proj.displayName);
       if (proj.platform === 'apple') {
         aEntry = trendData;
-      } else {
+      } else if (proj.platform === 'google') {
         gEntry = trendData;
+      } else {
+        gEntry = getTrendArray('google', proj.packageName, proj.name);
+        aEntry = getTrendArray('apple', proj.bundleId, proj.packageName, proj.name);
       }
     }
 

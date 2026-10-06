@@ -194,7 +194,7 @@ export default function CombinedInstallsChart({
     },
     ...appKeys.map((appKey, index) => {
       const trendEntry = appTrends[appKey] || [];
-      const trends = trendEntry?.trends || (Array.isArray(trendEntry) ? trendEntry : []);
+      const trends = trendEntry?.dailyTrends || trendEntry?.trends || (Array.isArray(trendEntry) ? trendEntry : []);
       const trendMap = new Map(trends.map(t => [t.date, t.dailyUserInstalls || t.dailyInstalls || 0]));
 
       const isApple = trendEntry?.platform === 'apple' || appKey.startsWith('apple:');

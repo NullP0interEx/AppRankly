@@ -138,7 +138,8 @@ export default function Dashboard({
   isStaticMode,
   refreshData,
   switchToDemoMode,
-  viewMode
+  viewMode,
+  pairings
 }) {
   const location = useLocation();
   const isDetailsView = viewMode === 'details' || location.pathname.startsWith('/details');
@@ -494,6 +495,7 @@ export default function Dashboard({
           setSelectedProjectIndex={setSelectedProjectIndex}
           setPlatform={setPlatform}
           setPlatformAndProject={setPlatformAndProject}
+          pairings={pairings}
         />
 
         {/* Combined Portfolio Installs & Dimension Analysis */}

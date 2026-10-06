@@ -54,6 +54,9 @@ assert.strictEqual(aggregated.currentlyActiveDevices, 150);
 assert.strictEqual(aggregated.totalInstallCountByUser, 300);
 assert.strictEqual(aggregated.dailyTrends[0].activeDevices, 150);
 assert.strictEqual(aggregated.dailyTrends[0].dailyInstalls, 7);
+assert.ok(aggregated.appTrends['app1'].dailyTrends);
+assert.ok(aggregated.appTrends['app1'].trends);
+assert.strictEqual(aggregated.appTrends['app1'].trends[0].dailyInstalls, 5);
 
 // Test matchAndPairApps
 const gApps = [

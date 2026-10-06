@@ -43,8 +43,8 @@ export default function AllPlatformDashboard({ projects = [], filteredProjects, 
     let appleT = 0, googleT = 0;
     projects.forEach(proj => {
       const platKey = `${proj.platform}:${proj.packageName || proj.bundleId}`;
-      const entry = stats?.appTrends?.[platKey] || stats?.appTrends?.[proj.packageName] || stats?.appTrends?.[proj.name];
-      const trendData = entry?.trends || (Array.isArray(entry) ? entry : []);
+      const entry = stats?.appTrends?.[platKey] || stats?.appTrends?.[proj.packageName] || stats?.appTrends?.[proj.bundleId] || stats?.appTrends?.[proj.name];
+      const trendData = entry?.dailyTrends || entry?.trends || (Array.isArray(entry) ? entry : []);
       const installs = trendData.reduce((sum, d) => sum + (d.dailyUserInstalls || d.dailyInstalls || 0), 0);
       
       if (proj.platform === 'apple') {

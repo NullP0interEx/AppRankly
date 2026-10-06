@@ -11,7 +11,7 @@ require("dotenv").config();
 const rateLimit = require('express-rate-limit');
 
 const { DATA_DIR, getActualConfigPath, getBaseConfig, invalidateConfigCache, resolveKeyFilePath } = require("./lib/config");
-const { JWT_SECRET, PASSWORD_FILE, isPasswordSet, authenticate } = require("./lib/auth");
+const { JWT_SECRET, PASSWORD_FILE, isPasswordSet, authenticate, requireAdmin } = require("./lib/auth");
 const { buildAppleViewer, buildGoogleViewer, fetchPackagesByPlatform, getIgnoredSet } = require("./lib/viewerFactory");
 const { getScrapedAppleStoreData, getScrapedPlayStoreData, APPSTORE_CACHE_FILE, PLAYSTORE_CACHE_FILE } = require("./lib/scraper");
 const { getReleasesFromFile, saveReleasesToFile, RELEASES_FILE } = require("./lib/releases");
@@ -19,11 +19,11 @@ const { NOTES_DIR, ensureGitNotesRepo, getNotesFromStorage, saveNoteToStorage, d
 
 const AppleAppStoreStatsViewer = require("./lib/AppleAppStoreStatsViewer");
 const resolver = require("./lib/resolver");
-const { aggregateOverviews, matchAndPairApps, correlateReleases, calculateRetentionBenchmarks, weekdayAverages, linearForecast, fillContinuousDailyTrends } = require("./lib/metrics");
+const { aggregateOverviews, matchAndPairApps, correlateReleases, calculateRetentionBenchmarks, weekdayAverages, linearForecast, fillContinuousDailyTrends, aggregateSalesReports } = require("./lib/metrics");
 const { ensureDirectoriesAndTemplates } = require("./lib/init");
 const asoRouter = require("./routes/aso");
 const { sendNtfyNotification, sendWebhookNotification, sendTelegramNotification, syncNtfyTopicMessages, clearNotifications, markNotificationsRead } = require("./lib/notifier");
-const { checkAndNotifyStats, startPeriodicScheduler, getSchedulerStatus } = require("./lib/scheduler");
+const { checkAndNotifyStats, startPeriodicScheduler, getSchedulerStatus, checkNegativeReviewAlerts } = require("./lib/scheduler");
 const { calculateAppHealthScore } = require("./lib/healthScore");
 const { db } = require("./lib/db");
 
@@ -48,7 +48,7 @@ const authLimiter = rateLimit({
 });
 app.use('/api/auth', authLimiter);
 
-// --- Authentication Logic ---
+// --- Authentication & Multi-Tenant Team Logic (v2.0.0) ---
 
 app.get("/api/auth/status", (req, res) => {
   res.json({ setupRequired: !isPasswordSet() });
@@ -56,25 +56,186 @@ app.get("/api/auth/status", (req, res) => {
 
 app.post("/api/auth/setup", (req, res) => {
   if (isPasswordSet()) return res.status(400).json({ error: "Setup already completed" });
-  const { password } = req.body;
+  const { password, username = 'admin' } = req.body;
   if (!password || password.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
   const salt = bcrypt.genSaltSync(10);
   const hash = bcrypt.hashSync(password, salt);
   fs.writeFileSync(PASSWORD_FILE, hash);
+
+  if (db) {
+    try {
+      db.prepare(`
+        INSERT INTO users (username, password_hash, role, team_name, created_at)
+        VALUES (?, ?, 'admin', 'Default', datetime('now'))
+        ON CONFLICT(username) DO UPDATE SET password_hash = excluded.password_hash
+      `).run(username.trim(), hash);
+    } catch (e) {
+      console.warn('[Auth Setup] Could not insert default admin user in DB:', e.message);
+    }
+  }
+
   res.json({ success: true });
 });
 
 app.post("/api/auth/login", (req, res) => {
-  const { password } = req.body;
+  const { password, username } = req.body || {};
+  if (!password) return res.status(400).json({ error: "Password is required" });
+
+  // 1. Team user database authentication (v2.0.0)
+  if (username && db) {
+    try {
+      const user = db.prepare('SELECT * FROM users WHERE username = ?').get(String(username).trim());
+      if (user && bcrypt.compareSync(password, user.password_hash)) {
+        const token = jwt.sign({ username: user.username, role: user.role, team: user.team_name, userId: user.id }, JWT_SECRET, { expiresIn: "365d" });
+        return res.json({ token, user: { username: user.username, role: user.role, team: user.team_name } });
+      }
+      return res.status(401).json({ error: "Invalid username or password" });
+    } catch (err) {
+      console.error('[Auth] Database auth error:', err);
+    }
+  }
+
+  // 2. Legacy / Admin password fallback
   let storedHash = process.env.ADMIN_PASSWORD;
   if (!storedHash && fs.existsSync(PASSWORD_FILE)) storedHash = fs.readFileSync(PASSWORD_FILE, "utf8").trim();
   if (!storedHash) return res.status(400).json({ error: "Password not set up yet. Please complete initial setup." });
   if (bcrypt.compareSync(password, storedHash)) {
-    const token = jwt.sign({ role: "admin" }, JWT_SECRET, { expiresIn: "365d" });
-    res.json({ token });
+    const token = jwt.sign({ username: username || "admin", role: "admin", team: "Default" }, JWT_SECRET, { expiresIn: "365d" });
+    res.json({ token, user: { username: username || "admin", role: "admin", team: "Default" } });
   } else {
     res.status(401).json({ error: "Invalid password" });
   }
+});
+
+app.get("/api/auth/me", authenticate, (req, res) => {
+  res.json({
+    user: req.user || { role: "admin", username: "admin", team: "Default" }
+  });
+});
+
+// --- Multi-Tenant Team Management (v2.0.0) ---
+app.get("/api/team/members", authenticate, (req, res) => {
+  if (!db) {
+    return res.json({ members: [{ id: 1, username: 'admin', role: 'admin', team_name: 'Default', created_at: new Date().toISOString() }] });
+  }
+  try {
+    const members = db.prepare('SELECT id, username, role, team_name, created_at FROM users ORDER BY created_at ASC').all();
+    res.json({ members });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/team/members", authenticate, requireAdmin, (req, res) => {
+  const { username, password, role = 'viewer', team_name = 'Default' } = req.body || {};
+  if (!username || !password || password.length < 6) {
+    return res.status(400).json({ error: "Username and password (min 6 chars) are required" });
+  }
+  if (!db) return res.status(500).json({ error: "Database unavailable" });
+
+  try {
+    const salt = bcrypt.genSaltSync(10);
+    const hash = bcrypt.hashSync(password, salt);
+    db.prepare(`
+      INSERT INTO users (username, password_hash, role, team_name, created_at)
+      VALUES (?, ?, ?, ?, datetime('now'))
+    `).run(username.trim(), hash, role, team_name);
+
+    const user = db.prepare('SELECT id, username, role, team_name, created_at FROM users WHERE username = ?').get(username.trim());
+    res.json({ success: true, user });
+  } catch (err) {
+    res.status(400).json({ error: err.message.includes('UNIQUE') ? 'Username already exists' : err.message });
+  }
+});
+
+app.delete("/api/team/members/:id", authenticate, requireAdmin, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!db || !id) return res.status(400).json({ error: "Valid user ID required" });
+
+  try {
+    db.prepare('DELETE FROM users WHERE id = ?').run(id);
+    res.json({ success: true, id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Native App Store Connect API Token Status & Diagnostics (v2.0.0) ---
+app.get("/api/apple/token-status", authenticate, async (req, res) => {
+  const baseConfig = getBaseConfig();
+  if (!baseConfig) return res.status(400).json({ success: false, error: "No config found" });
+
+  try {
+    const viewer = buildAppleViewer(baseConfig);
+    const token = viewer.generateToken(true);
+    const now = Math.floor(Date.now() / 1000);
+    const expiresIn = Math.max(0, viewer.tokenExpiry - now);
+
+    let connectionOk = false;
+    let appleError = null;
+    let appCount = 0;
+    try {
+      const response = await axios.get("https://api.appstoreconnect.apple.com/v1/apps?limit=1", {
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 8000
+      });
+      connectionOk = true;
+      appCount = response.data?.meta?.paging?.total || (response.data?.data ? response.data.data.length : 0);
+    } catch (err) {
+      appleError = err.response ? `HTTP ${err.response.status}: ${JSON.stringify(err.response.data)}` : err.message;
+    }
+
+    res.json({
+      success: true,
+      configured: true,
+      issuerId: viewer.issuerId,
+      keyId: viewer.keyId,
+      hasPrivateKey: Boolean(viewer.privateKey),
+      expiresInSeconds: expiresIn,
+      liveConnection: connectionOk,
+      appCount,
+      appleError,
+      message: connectionOk
+        ? "Native ES256 JWT generated and verified with App Store Connect API v1."
+        : `Token generated, but Apple API returned: ${appleError}`
+    });
+  } catch (err) {
+    res.json({ success: false, configured: false, error: err.message });
+  }
+});
+
+// --- Manual Negative Review Scan Endpoint (v1.6.0) ---
+app.post("/api/aso/reviews/scan-negative", authenticate, async (req, res) => {
+  const { packageName, platform = 'play', displayName } = req.body || {};
+  if (!packageName) return res.status(400).json({ error: "packageName is required" });
+
+  try {
+    const baseConfig = getBaseConfig() || {};
+    const alerted = await checkNegativeReviewAlerts({
+      pkgId: packageName,
+      platform,
+      displayName: displayName || packageName,
+      baseConfig
+    });
+
+    res.json({
+      success: true,
+      packageName,
+      platform,
+      newAlertsCount: alerted.length,
+      alertedReviewIds: alerted
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Net Proceeds & IAP Revenue Analytics (v1.6.0) ---
+app.get("/api/analytics/revenue", authenticate, (req, res) => {
+  const appleSalesDir = path.join(DATA_DIR, 'download_stats', 'apple');
+  const { sku, startDate, endDate } = req.query;
+  const data = aggregateSalesReports(appleSalesDir, { sku, startDate, endDate });
+  res.json(data);
 });
 
 app.get("/api/status", (req, res) => res.json({ status: "healthy", timestamp: new Date().toISOString() }));
@@ -335,7 +496,17 @@ app.post("/api/stats", authenticate, async (req, res) => {
     if (projectIndex === "all") {
       const packages = await fetchPackagesByPlatform(platform === 'all' ? 'all' : platform, baseConfig);
       const results = await Promise.all(packages.map(async pkg => {
-        try { return { ...(await (pkg.platform === 'apple' ? buildAppleViewer(baseConfig, pkg.packageName) : buildGoogleViewer(baseConfig, pkg.packageName)).getAppStats(startDate, endDate)), packageName: pkg.packageName, displayName: pkg.name || pkg.packageName }; }
+        try {
+          const stats = await (pkg.platform === 'apple' ? buildAppleViewer(baseConfig, pkg.packageName) : buildGoogleViewer(baseConfig, pkg.packageName)).getAppStats(startDate, endDate);
+          return {
+            ...stats,
+            packageName: pkg.packageName,
+            displayName: pkg.name || pkg.packageName,
+            name: pkg.name || pkg.packageName,
+            platform: pkg.platform || stats?.platform || 'google',
+            bundleId: pkg.bundleId || pkg.packageName
+          };
+        }
         catch (e) { return null; }
       }));
       const valid = results.filter(Boolean);
