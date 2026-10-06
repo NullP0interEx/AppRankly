@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { clsx } from 'clsx';
 import { PlayStoreIcon, AppleStoreIcon } from '../components/icons/StoreIcons';
@@ -46,6 +46,79 @@ import {
   Sparkles
 } from 'lucide-react';
 
+const FEATURE_CARDS = [
+  {
+    id: 'details',
+    title: 'App Details & Breakdown',
+    tag: 'Granular Metrics',
+    description: 'Deep dive into single app statistics, version adoption, device hardware distribution, and country breakdowns.',
+    icon: Smartphone,
+    bgGradient: 'bg-gradient-to-br from-cyan-500/10 via-slate-900/40 to-slate-950/80',
+    borderColor: 'border-cyan-500/20 hover:border-cyan-500/50',
+    hoverGlow: 'hover:shadow-cyan-500/10',
+    iconBg: 'bg-cyan-500/10',
+    iconColor: 'text-cyan-400',
+    iconBorder: 'border-cyan-500/30',
+    badgeStyle: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/20'
+  },
+  {
+    id: 'retention',
+    title: 'Retention & Engagement',
+    tag: 'User Cohorts',
+    description: 'Analyze active device survival curves, uninstalls, user cohort retention, and churn indicators over time.',
+    icon: Users,
+    bgGradient: 'bg-gradient-to-br from-purple-500/10 via-slate-900/40 to-slate-950/80',
+    borderColor: 'border-purple-500/20 hover:border-purple-500/50',
+    hoverGlow: 'hover:shadow-purple-500/10',
+    iconBg: 'bg-purple-500/10',
+    iconColor: 'text-purple-400',
+    iconBorder: 'border-purple-500/30',
+    badgeStyle: 'bg-purple-500/10 text-purple-300 border-purple-500/20'
+  },
+  {
+    id: 'store',
+    title: 'Store Optimization (ASO)',
+    tag: 'App Store Presence',
+    description: 'Optimize search visibility, monitor keyword positions, preview assets, Custom Product Pages (CPP), and competitor store updates.',
+    icon: Eye,
+    bgGradient: 'bg-gradient-to-br from-amber-500/10 via-slate-900/40 to-slate-950/80',
+    borderColor: 'border-amber-500/20 hover:border-amber-500/50',
+    hoverGlow: 'hover:shadow-amber-500/10',
+    iconBg: 'bg-amber-500/10',
+    iconColor: 'text-amber-400',
+    iconBorder: 'border-amber-500/30',
+    badgeStyle: 'bg-amber-500/10 text-amber-300 border-amber-500/20'
+  },
+  {
+    id: 'releases',
+    title: 'Releases & Build Health',
+    tag: 'Version Rollouts',
+    description: 'Track version release velocity, adoption rates across active users, build stability, and crash rates per version.',
+    icon: Tag,
+    bgGradient: 'bg-gradient-to-br from-emerald-500/10 via-slate-900/40 to-slate-950/80',
+    borderColor: 'border-emerald-500/20 hover:border-emerald-500/50',
+    hoverGlow: 'hover:shadow-emerald-500/10',
+    iconBg: 'bg-emerald-500/10',
+    iconColor: 'text-emerald-400',
+    iconBorder: 'border-emerald-500/30',
+    badgeStyle: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20'
+  },
+  {
+    id: 'reports',
+    title: 'Automated Reports',
+    tag: 'Exports & Digests',
+    description: 'Set up automated email reporting, custom metric alerts, scheduled data snapshots, and raw CSV/JSON exports.',
+    icon: FileText,
+    bgGradient: 'bg-gradient-to-br from-rose-500/10 via-slate-900/40 to-slate-950/80',
+    borderColor: 'border-rose-500/20 hover:border-rose-500/50',
+    hoverGlow: 'hover:shadow-rose-500/10',
+    iconBg: 'bg-rose-500/10',
+    iconColor: 'text-rose-400',
+    iconBorder: 'border-rose-500/30',
+    badgeStyle: 'bg-rose-500/10 text-rose-300 border-rose-500/20'
+  }
+];
+
 export default function Dashboard({
   stats,
   dimensionStats,
@@ -81,6 +154,93 @@ export default function Dashboard({
       }
     }
   }, [isDetailsView, selectedProjectIndex, projects, setSelectedProjectIndex]);
+
+  const trends = useMemo(() => {
+    const dailyTrends = stats?.dailyTrends;
+    if (!dailyTrends || dailyTrends.length === 0) {
+      return {
+        combinedTotalInstalls: 0,
+        combinedAvgInstalls: 0,
+        netGrowthTotal: 0,
+        netGrowthAvg: 0,
+        upgradesTotal: 0,
+        upgradesAvg: 0,
+        activeDevicesMax: 0,
+        activeDevicesAvg: 0,
+        installsTrend: null,
+        uninstallsTrend: null,
+        activeTrend: null
+      };
+    }
+
+    let combinedTotal = 0;
+    let netGrowth = 0;
+    let upgrades = 0;
+    let activeMax = 0;
+    let activeSum = 0;
+    const len = dailyTrends.length;
+
+    for (let i = 0; i < len; i++) {
+      const day = dailyTrends[i];
+      combinedTotal += (day.dailyUserInstalls || day.dailyInstalls || 0);
+      netGrowth += (day.netGrowth || 0);
+      upgrades += (day.upgrades || 0);
+      const act = day.activeDevices || 0;
+      if (act > activeMax) activeMax = act;
+      activeSum += act;
+    }
+
+    const calcTrend = (key) => {
+      if (len < 2) return null;
+      const half = Math.floor(len / 2);
+      let firstSum = 0;
+      let secondSum = 0;
+      for (let i = 0; i < half; i++) firstSum += (dailyTrends[i][key] || 0);
+      for (let i = half; i < len; i++) secondSum += (dailyTrends[i][key] || 0);
+      if (firstSum === 0) return secondSum > 0 ? '+100%' : '0%';
+      const diff = ((secondSum - firstSum) / firstSum) * 100;
+      if (!isFinite(diff) || isNaN(diff)) return '0%';
+      return (diff >= 0 ? '+' : '') + diff.toFixed(1) + '%';
+    };
+
+    return {
+      combinedTotalInstalls: combinedTotal,
+      combinedAvgInstalls: Math.round(combinedTotal / len),
+      netGrowthTotal: netGrowth,
+      netGrowthAvg: Math.round(netGrowth / len),
+      upgradesTotal: upgrades,
+      upgradesAvg: Math.round(upgrades / len),
+      activeDevicesMax: activeMax,
+      activeDevicesAvg: Math.round(activeSum / len),
+      installsTrend: calcTrend('dailyUserInstalls'),
+      uninstallsTrend: calcTrend('dailyUserUninstalls'),
+      activeTrend: calcTrend('activeDevices')
+    };
+  }, [stats?.dailyTrends]);
+
+  const {
+    combinedTotalInstalls,
+    combinedAvgInstalls,
+    netGrowthTotal,
+    netGrowthAvg,
+    upgradesTotal,
+    upgradesAvg,
+    activeDevicesMax,
+    activeDevicesAvg,
+    installsTrend,
+    uninstallsTrend,
+    activeTrend
+  } = trends;
+
+  const healthScore = useMemo(() => (stats ? calculateHealthScore(stats) : 0), [stats]);
+
+  const filteredProjects = useMemo(() => (
+    platform === 'all' ? projects : projects.filter(p => p.platform === platform)
+  ), [platform, projects]);
+
+  const activeProject = useMemo(() => (
+    findProject(projects, selectedProjectIndex, platform)
+  ), [projects, selectedProjectIndex, platform]);
 
   if (loading && !stats) return <SkeletonDashboard />;
 
@@ -132,23 +292,6 @@ export default function Dashboard({
 
   if (!stats) return null;
 
-  // True Period-over-Period trend computation
-  const computeTrend = (key) => {
-    const data = stats.dailyTrends;
-    if (!data || data.length < 2) return null;
-    const half = Math.floor(data.length / 2);
-    const firstHalf = data.slice(0, half);
-    const secondHalf = data.slice(half);
-
-    const firstSum = firstHalf.reduce((acc, curr) => acc + (curr[key] || 0), 0);
-    const secondSum = secondHalf.reduce((acc, curr) => acc + (curr[key] || 0), 0);
-
-    if (firstSum === 0) return secondSum > 0 ? '+100%' : '0%';
-    const diff = ((secondSum - firstSum) / firstSum) * 100;
-    if (!isFinite(diff) || isNaN(diff)) return '0%';
-    return (diff >= 0 ? '+' : '') + diff.toFixed(1) + '%';
-  };
-
   const rawSurvival = (stats.totalInstallCountByUser > 0 && stats.currentlyActiveDevices >= 0)
     ? ((stats.currentlyActiveDevices / stats.totalInstallCountByUser) * 100)
     : null;
@@ -163,11 +306,7 @@ export default function Dashboard({
     ? rawChurn.toFixed(1)
     : '—';
 
-  const healthScore = calculateHealthScore(stats);
-
   const isAllProjects = selectedProjectIndex === 'all' || platform === 'all';
-  const filteredProjects = platform === 'all' ? projects : projects.filter(p => p.platform === platform);
-  const activeProject = findProject(projects, selectedProjectIndex, platform);
   const lastDataDate = stats.lastDate || (stats.dailyTrends?.length > 0 ? stats.dailyTrends[stats.dailyTrends.length - 1].date : null);
 
   const platSegment = platform === 'google' ? 'android' : platform === 'apple' ? 'apple' : 'all';
@@ -180,79 +319,6 @@ export default function Dashboard({
       : projSegment;
     return `/${featureId}/${platSegment}/${actualProj}${searchStr}`;
   };
-
-  const featureCards = [
-    {
-      id: 'details',
-      title: 'App Details & Breakdown',
-      tag: 'Granular Metrics',
-      description: 'Deep dive into single app statistics, version adoption, device hardware distribution, and country breakdowns.',
-      icon: Smartphone,
-      bgGradient: 'bg-gradient-to-br from-cyan-500/10 via-slate-900/40 to-slate-950/80',
-      borderColor: 'border-cyan-500/20 hover:border-cyan-500/50',
-      hoverGlow: 'hover:shadow-cyan-500/10',
-      iconBg: 'bg-cyan-500/10',
-      iconColor: 'text-cyan-400',
-      iconBorder: 'border-cyan-500/30',
-      badgeStyle: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/20'
-    },
-    {
-      id: 'retention',
-      title: 'Retention & Engagement',
-      tag: 'User Cohorts',
-      description: 'Analyze active device survival curves, uninstalls, user cohort retention, and churn indicators over time.',
-      icon: Users,
-      bgGradient: 'bg-gradient-to-br from-purple-500/10 via-slate-900/40 to-slate-950/80',
-      borderColor: 'border-purple-500/20 hover:border-purple-500/50',
-      hoverGlow: 'hover:shadow-purple-500/10',
-      iconBg: 'bg-purple-500/10',
-      iconColor: 'text-purple-400',
-      iconBorder: 'border-purple-500/30',
-      badgeStyle: 'bg-purple-500/10 text-purple-300 border-purple-500/20'
-    },
-    {
-      id: 'store',
-      title: 'Store Optimization (ASO)',
-      tag: 'App Store Presence',
-      description: 'Optimize search visibility, monitor keyword positions, preview assets, Custom Product Pages (CPP), and competitor store updates.',
-      icon: Eye,
-      bgGradient: 'bg-gradient-to-br from-amber-500/10 via-slate-900/40 to-slate-950/80',
-      borderColor: 'border-amber-500/20 hover:border-amber-500/50',
-      hoverGlow: 'hover:shadow-amber-500/10',
-      iconBg: 'bg-amber-500/10',
-      iconColor: 'text-amber-400',
-      iconBorder: 'border-amber-500/30',
-      badgeStyle: 'bg-amber-500/10 text-amber-300 border-amber-500/20'
-    },
-    {
-      id: 'releases',
-      title: 'Releases & Build Health',
-      tag: 'Version Rollouts',
-      description: 'Track version release velocity, adoption rates across active users, build stability, and crash rates per version.',
-      icon: Tag,
-      bgGradient: 'bg-gradient-to-br from-emerald-500/10 via-slate-900/40 to-slate-950/80',
-      borderColor: 'border-emerald-500/20 hover:border-emerald-500/50',
-      hoverGlow: 'hover:shadow-emerald-500/10',
-      iconBg: 'bg-emerald-500/10',
-      iconColor: 'text-emerald-400',
-      iconBorder: 'border-emerald-500/30',
-      badgeStyle: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20'
-    },
-    {
-      id: 'reports',
-      title: 'Automated Reports',
-      tag: 'Exports & Digests',
-      description: 'Set up automated email reporting, custom metric alerts, scheduled data snapshots, and raw CSV/JSON exports.',
-      icon: FileText,
-      bgGradient: 'bg-gradient-to-br from-rose-500/10 via-slate-900/40 to-slate-950/80',
-      borderColor: 'border-rose-500/20 hover:border-rose-500/50',
-      hoverGlow: 'hover:shadow-rose-500/10',
-      iconBg: 'bg-rose-500/10',
-      iconColor: 'text-rose-400',
-      iconBorder: 'border-rose-500/30',
-      badgeStyle: 'bg-rose-500/10 text-rose-300 border-rose-500/20'
-    }
-  ];
 
   const renderFeatureDiscoverySection = () => (
     <div className="glass-card p-6 sm:p-8 space-y-6 border border-white/10 relative overflow-hidden">
@@ -280,7 +346,7 @@ export default function Dashboard({
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 relative z-10">
-        {featureCards.map((card) => {
+        {FEATURE_CARDS.map((card) => {
           const Icon = card.icon;
           const targetUrl = getFeaturePath(card.id);
           return (
@@ -341,19 +407,6 @@ export default function Dashboard({
     const el = document.getElementById(targetChartId);
     if (el) el.scrollIntoView({ behavior: 'smooth' });
   };
-
-  const combinedTotalInstalls = stats.dailyTrends?.reduce((sum, item) => sum + (item.dailyUserInstalls || item.dailyInstalls || 0), 0) || 0;
-  const combinedAvgInstalls = stats.dailyTrends?.length ? Math.round(combinedTotalInstalls / stats.dailyTrends.length) : 0;
-
-  const netGrowthTotal = stats.dailyTrends?.reduce((sum, day) => sum + (day.netGrowth || 0), 0) || 0;
-  const netGrowthAvg = stats.dailyTrends?.length ? Math.round(netGrowthTotal / stats.dailyTrends.length) : 0;
-  
-  const upgradesTotal = stats.dailyTrends?.reduce((sum, day) => sum + (day.upgrades || 0), 0) || 0;
-  const upgradesAvg = stats.dailyTrends?.length ? Math.round(upgradesTotal / stats.dailyTrends.length) : 0;
-  
-  const activeDevicesMax = stats.dailyTrends?.reduce((max, day) => Math.max(max, day.activeDevices || 0), 0) || 0;
-  const activeDevicesSum = stats.dailyTrends?.reduce((sum, day) => sum + (day.activeDevices || 0), 0) || 0;
-  const activeDevicesAvg = stats.dailyTrends?.length ? Math.round(activeDevicesSum / stats.dailyTrends.length) : 0;
 
   const renderSummary = (total, avg, label1 = "Total", label2 = "Average") => (
     <div className="flex items-center space-x-6 mb-3 bg-white/5 w-fit px-3 py-2 rounded-lg border border-white/10">
@@ -646,7 +699,7 @@ export default function Dashboard({
           label="Daily Installs"
           value={formatNumber(stats.totalDailyUserInstalls || 0)}
           sublabel="Total User Acquisitions"
-          trend={computeTrend('dailyUserInstalls')}
+          trend={installsTrend}
           icon={TrendingUp}
           color="emerald"
           tooltipSubheader="Daily User Acquisitions"
@@ -656,7 +709,7 @@ export default function Dashboard({
           label="Uninstall Ratio"
           value={hasUninstallData ? (churnRate === '—' ? '—' : `${churnRate}%`) : '—'}
           sublabel={hasUninstallData ? "Uninstalls / Active Devices" : "Not tracked by Apple App Store"}
-          trend={hasUninstallData ? computeTrend('dailyUserUninstalls') : null}
+          trend={hasUninstallData ? uninstallsTrend : null}
           icon={LogOut}
           color="rose"
           progress={hasUninstallData && churnRate !== '—' ? parseFloat(churnRate) : 0}
@@ -667,7 +720,7 @@ export default function Dashboard({
           label="Install Survival Rate"
           value={installSurvivalIndex === '—' ? '—' : `${installSurvivalIndex}%`}
           sublabel="Active / Lifetime Installs"
-          trend={computeTrend('activeDevices')}
+          trend={activeTrend}
           icon={Activity}
           color="blue"
           progress={installSurvivalIndex !== '—' ? parseFloat(installSurvivalIndex) : 0}

@@ -1,9 +1,10 @@
 {
   "name": "apprankly",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "private": true,
   "license": "AGPL-3.0-only",
   "scripts": {
+    "test": "cd app && npm test",
     "start": "cd app && npm start",
     "dev": "cd app && npm run dev",
     "build": "cd app && npm run build:frontend",

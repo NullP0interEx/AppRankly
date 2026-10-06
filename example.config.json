@@ -9,6 +9,12 @@
   "appleVendorId": "YOUR_APPLE_VENDOR_ID_8_DIGITS (App Store Connect -> Payments and Financial Reports -> Vendor Number at top left)",
   "PlaystoreConsoleUrl": "https://play.google.com/console/u/0/developers/YOUR_DEVELOPER_ID (URL of your Google Play Console homepage)",
   "ntfyTopic": "",
+  "webhookUrl": "https://discord.com/api/webhooks/YOUR_WEBHOOK_URL (Discord or generic webhook for daily briefs and alerts)",
+  "slackWebhookUrl": "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK (Dedicated Slack Incoming Webhook for channel alerts)",
+  "telegram": {
+    "botToken": "YOUR_TELEGRAM_BOT_TOKEN",
+    "chatId": "YOUR_TELEGRAM_CHAT_ID"
+  },
   "refreshIntervalHours": 1,
   "statsCheckRangeDays": 30,
   "activeStartHour": 9,

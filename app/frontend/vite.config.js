@@ -17,8 +17,19 @@ export default defineConfig({
     chunkSizeWarningLimit: 1000,
     rollupOptions: {
       output: {
-        manualChunks: {
-          vendor: ['react', 'react-dom'],
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('chart.js') || id.includes('react-chartjs-2')) {
+              return 'vendor-charts';
+            }
+            if (id.includes('lucide-react')) {
+              return 'vendor-icons';
+            }
+            if (id.includes('react') || id.includes('scheduler') || id.includes('react-router')) {
+              return 'vendor-react';
+            }
+            return 'vendor-misc';
+          }
         },
       },
     },

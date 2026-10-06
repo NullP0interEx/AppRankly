@@ -212,7 +212,9 @@ async function checkAndNotifyStats({ getBaseConfig, DATA_DIR, buildGoogleViewer,
               priority: 'urgent',
               tags: 'warning,warning',
               topic: ntfyTopic,
-              webhookUrl
+              webhookUrl,
+              slackWebhookUrl: baseConfig.slackWebhookUrl || process.env.SLACK_WEBHOOK_URL,
+              telegram: baseConfig.telegram
             }).catch(e => console.error('[Scheduler] Anomaly alert error:', e.message));
           }
         }
@@ -315,10 +317,12 @@ async function checkAndNotifyStats({ getBaseConfig, DATA_DIR, buildGoogleViewer,
         tags: 'chart_with_upwards_trend,package',
         topic: ntfyTopic,
         dataDir: DATA_DIR,
-        webhookUrl
+        webhookUrl,
+        slackWebhookUrl: baseConfig.slackWebhookUrl || process.env.SLACK_WEBHOOK_URL,
+        telegram: baseConfig.telegram
       });
 
-      if (res.ntfyResult?.success || res.webhookResult?.success) {
+      if (res.ntfyResult?.success || res.webhookResult?.success || res.slackResult?.success || res.telegramResult?.success) {
         notificationsSent = 1;
         for (const app of appsWithChanges) {
           details.push({ app: app.displayName, platform: app.platform, date: app.date, status: 'Notified' });

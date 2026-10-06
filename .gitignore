@@ -14,7 +14,6 @@ app/public/vite.svg
 
 # Testing & Temp
 **/download_stats/
-app/test/
 .DS_Store
 Thumbs.db
 
@@ -51,3 +50,9 @@ test_apple_auth.js
 app/test_apple_stats.js
 attic/
 app/static_assets/smollm2_q4.tar.gz
+
+# Tokless CodeGraph & Resolver disk cache
+.codegraph/
+.resolve_cache/
+app/data/.resolve_cache/
+

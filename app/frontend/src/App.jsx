@@ -5,21 +5,29 @@ import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
 import ContextBar from './components/ContextBar';
 import Dashboard from './pages/Dashboard';
-import Analytics from './pages/Analytics';
-import StoreASO from './pages/StoreASO';
-import Releases from './pages/Releases';
-import Notes from './pages/Notes';
-import Reports from './pages/Reports';
-import Config from './pages/Config';
-import Glossary from './pages/Glossary';
 import AuthOverlay from './components/AuthOverlay';
 import DemoPopup from './components/DemoPopup';
-import QuickNotesModal from './components/QuickNotesModal';
-import FloatingAssistant from './components/FloatingAssistant';
-import CommandPaletteModal from './components/CommandPaletteModal';
-import KeyboardShortcutsModal from './components/KeyboardShortcutsModal';
 import { useAppState } from './hooks/useAppState';
 import { findProject, getProjectUrlSegment } from './lib/projectUtils';
+
+// Lazy-loaded routes and modals for fast initial load
+const Analytics = React.lazy(() => import('./pages/Analytics'));
+const StoreASO = React.lazy(() => import('./pages/StoreASO'));
+const Releases = React.lazy(() => import('./pages/Releases'));
+const Notes = React.lazy(() => import('./pages/Notes'));
+const Reports = React.lazy(() => import('./pages/Reports'));
+const Config = React.lazy(() => import('./pages/Config'));
+const Glossary = React.lazy(() => import('./pages/Glossary'));
+const CommandPaletteModal = React.lazy(() => import('./components/CommandPaletteModal'));
+const KeyboardShortcutsModal = React.lazy(() => import('./components/KeyboardShortcutsModal'));
+const QuickNotesModal = React.lazy(() => import('./components/QuickNotesModal'));
+const FloatingAssistant = React.lazy(() => import('./components/FloatingAssistant'));
+
+const RouteFallback = () => (
+  <div className="flex-1 flex items-center justify-center min-h-[300px]">
+    <div className="w-8 h-8 border-2 border-accent-blue border-t-transparent rounded-full animate-spin" />
+  </div>
+);
 
 function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
@@ -149,75 +157,91 @@ function App() {
         />
 
         <main className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar">
-          <Routes>
-            <Route path="/" element={<Dashboard {...state} viewMode="overview" />} />
-            <Route path="/details" element={<Dashboard {...state} viewMode="details" />} />
-            <Route path="/details/*" element={<Dashboard {...state} viewMode="details" />} />
-            <Route path="/store/*" element={<StoreASO {...state} onSelectProject={state.setSelectedProjectIndex} />} />
-            <Route path="/retention/*" element={<Analytics {...state} />} />
-            <Route path="/releases/*" element={<Releases {...state} />} />
-            <Route path="/notes" element={<Notes {...state} />} />
-            <Route path="/notes/:platform/:projectIndex" element={<Notes {...state} />} />
-            <Route path="/notes/id/:noteId" element={<Notes {...state} />} />
-            <Route path="/reports/*" element={<Reports {...state} />} />
-            <Route path="/config/*" element={<Config {...state} />} />
-            <Route path="/glossary/*" element={<Glossary {...state} />} />
-            
-            {/* Direct deep-link support for overview dashboard */}
-            <Route path="/:platform" element={<Dashboard {...state} viewMode="overview" />} />
-            <Route path="/:platform/:projectIndex" element={<Dashboard {...state} />} />
-          </Routes>
+          <React.Suspense fallback={<RouteFallback />}>
+            <Routes>
+              <Route path="/" element={<Dashboard {...state} viewMode="overview" />} />
+              <Route path="/details" element={<Dashboard {...state} viewMode="details" />} />
+              <Route path="/details/*" element={<Dashboard {...state} viewMode="details" />} />
+              <Route path="/store/*" element={<StoreASO {...state} onSelectProject={state.setSelectedProjectIndex} />} />
+              <Route path="/retention/*" element={<Analytics {...state} />} />
+              <Route path="/releases/*" element={<Releases {...state} />} />
+              <Route path="/notes" element={<Notes {...state} />} />
+              <Route path="/notes/:platform/:projectIndex" element={<Notes {...state} />} />
+              <Route path="/notes/id/:noteId" element={<Notes {...state} />} />
+              <Route path="/reports/*" element={<Reports {...state} />} />
+              <Route path="/config/*" element={<Config {...state} />} />
+              <Route path="/glossary/*" element={<Glossary {...state} />} />
+              
+              {/* Direct deep-link support for overview dashboard */}
+              <Route path="/:platform" element={<Dashboard {...state} viewMode="overview" />} />
+              <Route path="/:platform/:projectIndex" element={<Dashboard {...state} />} />
+            </Routes>
+          </React.Suspense>
         </main>
 
         {!state.authToken && !state.isDemoMode && !state.noPass && (
           <AuthOverlay {...state} />
         )}
 
-        <CommandPaletteModal
-          isOpen={isCommandPaletteOpen}
-          onClose={() => setIsCommandPaletteOpen(false)}
-          projects={state.projects}
-          selectedProjectIndex={state.selectedProjectIndex}
-          onSelectProject={state.setSelectedProjectIndex}
-          setPlatform={state.setPlatform}
-          setPlatformAndProject={state.setPlatformAndProject}
-          platform={state.platform}
-          starredApps={state.starredApps}
-          toggleStarApp={state.toggleStarApp}
-          dateRange={state.dateRange}
-          setDateRange={state.setDateRange}
-          refreshData={state.refreshData}
-          switchToDemoMode={state.switchToDemoMode}
-          openShortcutsHelp={() => setIsShortcutsOpen(true)}
-        />
+        {isCommandPaletteOpen && (
+          <React.Suspense fallback={null}>
+            <CommandPaletteModal
+              isOpen={isCommandPaletteOpen}
+              onClose={() => setIsCommandPaletteOpen(false)}
+              projects={state.projects}
+              selectedProjectIndex={state.selectedProjectIndex}
+              onSelectProject={state.setSelectedProjectIndex}
+              setPlatform={state.setPlatform}
+              setPlatformAndProject={state.setPlatformAndProject}
+              platform={state.platform}
+              starredApps={state.starredApps}
+              toggleStarApp={state.toggleStarApp}
+              dateRange={state.dateRange}
+              setDateRange={state.setDateRange}
+              refreshData={state.refreshData}
+              switchToDemoMode={state.switchToDemoMode}
+              openShortcutsHelp={() => setIsShortcutsOpen(true)}
+            />
+          </React.Suspense>
+        )}
 
-        <KeyboardShortcutsModal
-          isOpen={isShortcutsOpen}
-          onClose={() => setIsShortcutsOpen(false)}
-        />
+        {isShortcutsOpen && (
+          <React.Suspense fallback={null}>
+            <KeyboardShortcutsModal
+              isOpen={isShortcutsOpen}
+              onClose={() => setIsShortcutsOpen(false)}
+            />
+          </React.Suspense>
+        )}
 
-        <QuickNotesModal
-          isOpen={state.quickNotesOpen}
-          onClose={() => state.setQuickNotesOpen(false)}
-          {...state}
-        />
+        {state.quickNotesOpen && (
+          <React.Suspense fallback={null}>
+            <QuickNotesModal
+              isOpen={state.quickNotesOpen}
+              onClose={() => state.setQuickNotesOpen(false)}
+              {...state}
+            />
+          </React.Suspense>
+        )}
 
-        <FloatingAssistant
-          sendNoteAiChat={state.sendNoteAiChat}
-          projects={state.projects}
-          stats={state.stats}
-          platform={state.platform}
-          selectedProjectIndex={state.selectedProjectIndex}
-          dateRange={state.dateRange}
-          activeDimension={state.activeDimension}
-          dimensionStats={state.dimensionStats}
-          aiStatus={state.aiStatus}
-          notes={state.notes}
-          addNote={state.addNote}
-          updateNote={state.updateNote}
-          deleteNote={state.deleteNote}
-          onOpenQuickNotes={() => state.setQuickNotesOpen(true)}
-        />
+        <React.Suspense fallback={null}>
+          <FloatingAssistant
+            sendNoteAiChat={state.sendNoteAiChat}
+            projects={state.projects}
+            stats={state.stats}
+            platform={state.platform}
+            selectedProjectIndex={state.selectedProjectIndex}
+            dateRange={state.dateRange}
+            activeDimension={state.activeDimension}
+            dimensionStats={state.dimensionStats}
+            aiStatus={state.aiStatus}
+            notes={state.notes}
+            addNote={state.addNote}
+            updateNote={state.updateNote}
+            deleteNote={state.deleteNote}
+            onOpenQuickNotes={() => state.setQuickNotesOpen(true)}
+          />
+        </React.Suspense>
 
         <DemoPopup isDemoMode={state.isDemoMode} />
 

@@ -174,43 +174,145 @@ async function sendNtfyNotification({ message, title = 'New Data Alert', priorit
 }
 
 /**
- * Sends a notification via generic webhook (Discord, Slack, Home Assistant compatible)
+ * Sends a notification via generic webhook (Slack, Discord, Home Assistant compatible)
  */
 async function sendWebhookNotification({ message, title = 'AppRankly Alert', webhookUrl }) {
   const url = webhookUrl || process.env.WEBHOOK_URL;
   if (!url || !url.trim()) return { success: false, skipped: true };
 
-  try {
-    const response = await axios.post(url.trim(), {
-      content: `**${title}**\n${message}`,
-      text: `*${title}*\n${message}`,
-      username: 'AppRankly'
-    }, { timeout: 8000 });
+  const trimmedUrl = url.trim();
+  const isSlack = trimmedUrl.includes('hooks.slack.com');
+  const isDiscord = trimmedUrl.includes('discord.com');
 
-    console.log(`[Webhook] Notification sent to ${url}`);
+  let payload;
+  if (isSlack) {
+    const safeTitle = title.length > 150 ? title.substring(0, 147) + '...' : title;
+    payload = {
+      text: `*${title}*\n${message}`,
+      blocks: [
+        {
+          type: 'header',
+          text: {
+            type: 'plain_text',
+            text: safeTitle,
+            emoji: true
+          }
+        },
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: message
+          }
+        }
+      ]
+    };
+  } else if (isDiscord) {
+    payload = {
+      username: 'AppRankly',
+      content: `**${title}**\n${message}`
+    };
+  } else {
+    payload = {
+      title,
+      message,
+      text: `*${title}*\n${message}`,
+      content: `**${title}**\n${message}`,
+      username: 'AppRankly'
+    };
+  }
+
+  try {
+    const response = await axios.post(trimmedUrl, payload, {
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 8000
+    });
+
+    console.log(`[Webhook] Notification sent to ${trimmedUrl}`);
     return { success: true, data: response.data };
   } catch (error) {
-    console.error(`[Webhook] Failed to send to ${url}:`, error.message);
-    return { success: false, error: error.message };
+    const errMsg = error.response ? `HTTP ${error.response.status}: ${JSON.stringify(error.response.data)}` : error.message;
+    console.error(`[Webhook] Failed to send to ${trimmedUrl}:`, errMsg);
+    return { success: false, error: errMsg };
   }
 }
 
 /**
- * Broadcast alert to all active channels (ntfy + webhook)
+ * Sends a notification via Telegram Bot API with automatic entity fallback
+ */
+async function sendTelegramNotification({ message, title = 'AppRankly Alert', botToken, chatId }) {
+  const token = botToken || process.env.TELEGRAM_BOT_TOKEN;
+  const chat = chatId || process.env.TELEGRAM_CHAT_ID;
+  if (!token || !token.trim() || !chat || !String(chat).trim()) {
+    return { success: false, skipped: true };
+  }
+
+  const cleanToken = token.trim();
+  const cleanChat = String(chat).trim();
+  const url = `https://api.telegram.org/bot${cleanToken}/sendMessage`;
+  const text = `*${title}*\n\n${message}`;
+
+  try {
+    const response = await axios.post(url, {
+      chat_id: cleanChat,
+      text,
+      parse_mode: 'Markdown'
+    }, { timeout: 8000 });
+
+    console.log(`[Telegram] Notification sent to chat ${cleanChat}`);
+    return { success: true, data: response.data };
+  } catch (error) {
+    // If Markdown parsing fails due to unescaped underscores/symbols, retry in plain text
+    if (error.response?.data?.description?.includes("can't parse entities")) {
+      try {
+        const retryResponse = await axios.post(url, {
+          chat_id: cleanChat,
+          text: `${title}\n\n${message}`
+        }, { timeout: 8000 });
+        console.log(`[Telegram] Notification sent to chat ${cleanChat} (fallback plain text)`);
+        return { success: true, data: retryResponse.data };
+      } catch (retryErr) {
+        // Fall through to regular error reporting
+      }
+    }
+    const errMsg = error.response ? `HTTP ${error.response.status}: ${JSON.stringify(error.response.data)}` : error.message;
+    console.error(`[Telegram] Failed to send message:`, errMsg);
+    return { success: false, error: errMsg };
+  }
+}
+
+/**
+ * Broadcast alert to all active channels (ntfy + webhook + slack + telegram)
  */
 async function broadcastAlert(options) {
   const ntfyResult = await sendNtfyNotification(options);
   const webhookResult = await sendWebhookNotification(options);
-  return { ntfyResult, webhookResult };
+
+  let slackResult = { skipped: true };
+  const slackUrl = options.slackWebhookUrl || options.baseConfig?.slackWebhookUrl || process.env.SLACK_WEBHOOK_URL;
+  if (slackUrl && slackUrl !== options.webhookUrl) {
+    slackResult = await sendWebhookNotification({ ...options, webhookUrl: slackUrl });
+  }
+
+  const telegramResult = await sendTelegramNotification({
+    title: options.title,
+    message: options.message,
+    botToken: options.telegramBotToken || options.telegram?.botToken,
+    chatId: options.telegramChatId || options.telegram?.chatId
+  });
+
+  return { ntfyResult, webhookResult, slackResult, telegramResult };
 }
 
 module.exports = {
   sendNtfyNotification,
   sendWebhookNotification,
+  sendTelegramNotification,
   broadcastAlert,
   addNotificationRecord,
   syncNtfyTopicMessages,
   clearNotifications,
   markNotificationsRead
 };
+
 

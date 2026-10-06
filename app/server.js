@@ -22,7 +22,7 @@ const resolver = require("./lib/resolver");
 const { aggregateOverviews, matchAndPairApps, correlateReleases, calculateRetentionBenchmarks, weekdayAverages, linearForecast, fillContinuousDailyTrends } = require("./lib/metrics");
 const { ensureDirectoriesAndTemplates } = require("./lib/init");
 const asoRouter = require("./routes/aso");
-const { sendNtfyNotification, syncNtfyTopicMessages, clearNotifications, markNotificationsRead } = require("./lib/notifier");
+const { sendNtfyNotification, sendWebhookNotification, sendTelegramNotification, syncNtfyTopicMessages, clearNotifications, markNotificationsRead } = require("./lib/notifier");
 const { checkAndNotifyStats, startPeriodicScheduler, getSchedulerStatus } = require("./lib/scheduler");
 const { calculateAppHealthScore } = require("./lib/healthScore");
 const { db } = require("./lib/db");
@@ -77,6 +77,91 @@ app.post("/api/auth/login", (req, res) => {
   }
 });
 
+app.get("/api/status", (req, res) => res.json({ status: "healthy", timestamp: new Date().toISOString() }));
+app.get("/healthz", (req, res) => res.json({ status: "ok", version: require("./package.json").version || "1.0.0", uptime: Math.round(process.uptime()), dbOpen: true }));
+
+// --- Public SVG Badge Endpoint (Shields.io Compatible) ---
+function generateBadgeSvg(label, value, color = '#3b82f6') {
+  const safeLabel = String(label).replace(/[<>&"']/g, '');
+  const safeVal = String(value).replace(/[<>&"']/g, '');
+  const charWidth = 7.2;
+  const labelWidth = Math.round(Math.max(safeLabel.length * charWidth + 14, 52));
+  const valueWidth = Math.round(Math.max(safeVal.length * charWidth + 14, 52));
+  const totalWidth = labelWidth + valueWidth;
+  const height = 20;
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${totalWidth}" height="${height}" role="img" aria-label="${safeLabel}: ${safeVal}">
+  <linearGradient id="s" x2="0" y2="100%">
+    <stop offset="0" stop-color="#bbb" stop-opacity=".1"/>
+    <stop offset="1" stop-opacity=".1"/>
+  </linearGradient>
+  <clipPath id="r">
+    <rect width="${totalWidth}" height="${height}" rx="3" fill="#fff"/>
+  </clipPath>
+  <g clip-path="url(#r)">
+    <rect width="${labelWidth}" height="${height}" fill="#27272a"/>
+    <rect x="${labelWidth}" width="${valueWidth}" height="${height}" fill="${color}"/>
+    <rect width="${totalWidth}" height="${height}" fill="url(#s)"/>
+  </g>
+  <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision" font-size="11">
+    <text aria-hidden="true" x="${labelWidth / 2}" y="15" fill="#010101" fill-opacity=".3">${safeLabel}</text>
+    <text x="${labelWidth / 2}" y="14">${safeLabel}</text>
+    <text aria-hidden="true" x="${labelWidth + valueWidth / 2}" y="15" fill="#010101" fill-opacity=".3">${safeVal}</text>
+    <text x="${labelWidth + valueWidth / 2}" y="14">${safeVal}</text>
+  </g>
+</svg>`;
+}
+
+app.get("/api/badge/:platform/:packageName/:metric", async (req, res) => {
+  try {
+    const rawMetric = (req.params.metric || '').replace(/\.svg$/, '').toLowerCase();
+    const platform = (req.params.platform || '').toLowerCase();
+    const packageName = req.params.packageName;
+    const isApple = platform === 'apple' || platform === 'ios';
+
+    const data = isApple ? await getScrapedAppleStoreData(packageName) : await getScrapedPlayStoreData(packageName);
+    
+    let label = isApple ? 'App Store' : 'Google Play';
+    let value = 'unknown';
+    let color = '#3b82f6';
+
+    if (!data) {
+      value = 'not found';
+      color = '#64748b';
+    } else if (rawMetric === 'rating' || rawMetric === 'score') {
+      label = isApple ? 'App Store' : 'Google Play';
+      const numScore = data.score ? Number(data.score).toFixed(1) : (data.scoreText || 'N/A');
+      value = `${numScore} ★`;
+      color = Number(data.score || 0) >= 4.5 ? '#10b981' : Number(data.score || 0) >= 4.0 ? '#f59e0b' : '#ef4444';
+    } else if (rawMetric === 'installs') {
+      label = 'installs';
+      value = data.installs || (data.minInstalls ? `${data.minInstalls.toLocaleString()}+` : 'N/A');
+      color = '#3b82f6';
+    } else if (rawMetric === 'version') {
+      label = 'version';
+      value = data.version ? `v${data.version}` : 'latest';
+      color = '#10b981';
+    } else if (rawMetric === 'reviews' || rawMetric === 'ratings') {
+      label = 'ratings';
+      value = `${(data.ratings || data.reviews || 0).toLocaleString()}`;
+      color = '#8b5cf6';
+    } else {
+      label = rawMetric;
+      value = 'available';
+      color = '#06b6d4';
+    }
+
+    const svg = generateBadgeSvg(label, value, color);
+    res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    return res.send(svg);
+  } catch (err) {
+    const svg = generateBadgeSvg('badge', 'error', '#ef4444');
+    res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+    return res.status(200).send(svg);
+  }
+});
+
 app.use('/api', authenticate, asoRouter);
 
 // --- Protected Endpoints ---
@@ -99,8 +184,6 @@ app.post("/api/store-details", authenticate, async (req, res) => {
   res.json({ ...scraped, isCached: false });
 });
 
-app.get("/api/status", (req, res) => res.json({ status: "healthy", timestamp: new Date().toISOString() }));
-app.get("/healthz", (req, res) => res.json({ status: "ok", version: require("./package.json").version || "1.0.0", uptime: Math.round(process.uptime()), dbOpen: true }));
 
 app.get("/api/integrations/status", authenticate, (req, res) => {
   const baseConfig = getBaseConfig();
@@ -433,6 +516,38 @@ app.get("/api/notifications", authenticate, async (req, res) => res.json(await s
 app.post("/api/notifications/clear", authenticate, (req, res) => res.json(clearNotifications(DATA_DIR, req.body?.id)));
 app.post("/api/notifications/mark-read", authenticate, (req, res) => res.json(markNotificationsRead(DATA_DIR, req.body?.id)));
 app.post("/api/notifications/test", authenticate, async (req, res) => res.json(await sendNtfyNotification({ title: 'Test', message: 'Hello', priority: 'high', topic: req.body?.topic || getBaseConfig()?.ntfyTopic || process.env.NTFY_TOPIC || '', dataDir: DATA_DIR })));
+app.post("/api/notifications/test-webhook", authenticate, async (req, res) => {
+  const webhookUrl = req.body?.webhookUrl || getBaseConfig()?.webhookUrl || process.env.WEBHOOK_URL;
+  if (!webhookUrl) return res.json({ success: false, error: "No webhook URL provided or configured in config.json." });
+  const result = await sendWebhookNotification({
+    title: 'Test Webhook Alert',
+    message: 'Hello from AppRankly! Your Discord/Slack webhook integration is configured and working properly.',
+    webhookUrl
+  });
+  res.json(result);
+});
+app.post("/api/notifications/test-slack", authenticate, async (req, res) => {
+  const slackUrl = req.body?.slackWebhookUrl || req.body?.webhookUrl || getBaseConfig()?.slackWebhookUrl || getBaseConfig()?.webhookUrl || process.env.SLACK_WEBHOOK_URL;
+  if (!slackUrl) return res.json({ success: false, error: "No Slack webhook URL provided or configured in config.json." });
+  const result = await sendWebhookNotification({
+    title: 'AppRankly Slack Alert',
+    message: 'Hello from AppRankly! Your Slack incoming webhook integration is configured and working properly.',
+    webhookUrl: slackUrl
+  });
+  res.json(result);
+});
+app.post("/api/notifications/test-telegram", authenticate, async (req, res) => {
+  const botToken = req.body?.botToken || getBaseConfig()?.telegram?.botToken || process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = req.body?.chatId || getBaseConfig()?.telegram?.chatId || process.env.TELEGRAM_CHAT_ID;
+  if (!botToken || !chatId) return res.json({ success: false, error: "Telegram botToken and chatId are required." });
+  const result = await sendTelegramNotification({
+    title: 'Test Telegram Alert',
+    message: 'Hello from AppRankly! Your Telegram bot integration is configured and working properly.',
+    botToken,
+    chatId
+  });
+  res.json(result);
+});
 
 const schedulerHelpers = { getBaseConfig, DATA_DIR, buildGoogleViewer, buildAppleViewer, fetchPackagesByPlatform };
 app.post("/api/refresh", authenticate, async (req, res) => { resolver.clearCache(); res.json(await checkAndNotifyStats(schedulerHelpers, { force: true })); });

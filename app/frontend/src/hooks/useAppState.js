@@ -651,6 +651,9 @@ ${telemetrySection}## 🎯 1. Title & Subtitle Keywords Optimization
 
   // Load Main Stats Overview
   const loadOverviewStats = useCallback(async () => {
+    if (selectedProjectIndex === 'manual' && projects.length === 0 && !isDemoMode) {
+      return;
+    }
     setError(null);
 
     if (isDemoMode) {
@@ -826,6 +829,9 @@ ${telemetrySection}## 🎯 1. Title & Subtitle Keywords Optimization
 
   // Load Dimension Stats separately to avoid blanking whole page on tab switch
   const loadDimensionStats = useCallback(async (dimensionName) => {
+    if (selectedProjectIndex === 'manual' && projects.length === 0 && !isDemoMode) {
+      return;
+    }
     if (isDemoMode) {
       setDimensionStats(MOCK_DATA.dimensions[dimensionName] || []);
       if (dimensionName === 'device') {
@@ -929,11 +935,14 @@ ${telemetrySection}## 🎯 1. Title & Subtitle Keywords Optimization
     }
   }, [activeDimension, loadDimensionStats, authToken, isDemoMode, noPass]);
 
+  const isDetailsRoute = location.pathname.startsWith('/details') ||
+    (selectedProjectIndex !== 'all' && selectedProjectIndex !== 'manual');
+
   useEffect(() => {
-    if ((authToken || isDemoMode || noPass) && activeDimension !== 'device') {
+    if ((authToken || isDemoMode || noPass) && isDetailsRoute && activeDimension !== 'device') {
       fetchDeviceStatsIfNeeded();
     }
-  }, [fetchDeviceStatsIfNeeded, activeDimension, authToken, isDemoMode, noPass]);
+  }, [fetchDeviceStatsIfNeeded, activeDimension, authToken, isDemoMode, noPass, isDetailsRoute]);
 
   const forceRefresh = useCallback(async () => {
     setLoading(true);

@@ -1,0 +1,38 @@
+# Dependencies & caches
+node_modules/
+**/node_modules/
+.codegraph/
+.resolve_cache/
+app/data/.resolve_cache/
+data/.resolve_cache/
+
+# Databases & WAL files
+*.sqlite
+*.sqlite-*
+*.db
+*.db-journal
+
+# Compiled frontend assets and source maps
+app/public/assets/
+*.map
+*.min.js
+
+# Binary and archives
+*.tar.gz
+*.zip
+*.gz
+*.png
+*.jpg
+*.jpeg
+*.svg
+*.ico
+
+# Lockfiles and logs
+package-lock.json
+**/package-lock.json
+*.log
+
+# Sensitive credentials
+*.p8
+*.key
+config/keys/

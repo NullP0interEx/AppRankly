@@ -4,7 +4,7 @@ import {
   TrendingUp, Key, Globe, Shield, RefreshCw, Copy, Plus, AlertCircle, Bot,
   Users, MessageSquare, Sliders, CheckSquare, BookOpen, Info, HelpCircle, Zap,
   BarChart2, ArrowRight, ChevronDown, ChevronUp, Layers, AlertTriangle, FileText,
-  LayoutGrid
+  LayoutGrid, Star, Target, Calendar, Award
 } from 'lucide-react';
 import MetricCard from '../components/MetricCard';
 import PortfolioAsoScores from '../components/PortfolioAsoScores';
@@ -209,6 +209,12 @@ export default function StoreASO({ stats, isDemoMode, projects = [], selectedPro
   const [selectedThemeForResponse, setSelectedThemeForResponse] = useState(null);
   const [draftedResponse, setDraftedResponse] = useState('');
   const [draftingLoading, setDraftingLoading] = useState(false);
+
+  // Rating Target & Trajectory Calculator State
+  const [targetRating, setTargetRating] = useState(4.5);
+  const [weeklyVelocity, setWeeklyVelocity] = useState(5);
+  const [customRatingInput, setCustomRatingInput] = useState(null);
+  const [customRatingsCountInput, setCustomRatingsCountInput] = useState(null);
 
   // Compute live impressions, page views, downloads from selected app stats
   const impressions = stats?.storeImpressions ?? (isDemoMode ? 4520 : 0);
@@ -1478,6 +1484,193 @@ export default function StoreASO({ stats, isDemoMode, projects = [], selectedPro
       {/* TAB 4: REVIEW SENTIMENT & VOICE OF CUSTOMER */}
       {activeTab === 'reviews' && (
         <div className="space-y-6 animate-in fade-in duration-150">
+          {/* STAR RATING TARGET CALCULATOR & TRAJECTORY PREDICTOR */}
+          {(() => {
+            const currentScore = customRatingInput !== null ? Number(customRatingInput) : Number(asoData?.metadata?.score || activeProject?.score || 4.2);
+            const currentCount = customRatingsCountInput !== null ? Number(customRatingsCountInput) : Number(asoData?.metadata?.ratings || asoData?.metadata?.reviews || 150);
+            
+            const rawNeeded = Math.ceil((targetRating * currentCount - currentScore * currentCount) / Math.max(0.01, (5 - targetRating)));
+            const neededFiveStars = targetRating <= currentScore ? 0 : Math.max(0, rawNeeded);
+            const weeksToTarget = weeklyVelocity > 0 ? (neededFiveStars / weeklyVelocity) : 0;
+            const daysToTarget = Math.round(weeksToTarget * 7);
+
+            const presetTargets = [4.5, 4.6, 4.7, 4.8, 4.9];
+
+            return (
+              <div className="glass-card p-6 border border-white/10 space-y-6">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                      <Target className="text-amber-400" size={20} />
+                      Star Rating Target Calculator & Trajectory
+                    </h2>
+                    <p className="text-xs text-slate-400">
+                      Compute the exact count of consecutive 5★ reviews required to hit store rating display thresholds.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-400">Target Presets:</span>
+                    <div className="flex gap-1.5">
+                      {presetTargets.map(preset => (
+                        <button
+                          key={preset}
+                          onClick={() => setTargetRating(preset)}
+                          className={clsx(
+                            "px-2.5 py-1 rounded-lg text-xs font-bold transition-all border",
+                            targetRating === preset
+                              ? "bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm"
+                              : "bg-white/5 text-slate-400 hover:text-white border-white/5"
+                          )}
+                        >
+                          {preset}★
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Metric Summary Hero Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="bg-slate-900/60 p-4 rounded-2xl border border-white/10 space-y-2">
+                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Current Store Score</span>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-2xl font-black text-white">{currentScore.toFixed(2)}</span>
+                      <Star size={16} className="text-amber-400 fill-amber-400" />
+                      <span className="text-xs text-slate-400">({currentCount.toLocaleString()} ratings)</span>
+                    </div>
+                    <div className="flex items-center gap-2 pt-1 text-[11px] text-slate-400">
+                      <span>Edit:</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="1"
+                        max="5"
+                        value={currentScore}
+                        onChange={(e) => setCustomRatingInput(parseFloat(e.target.value) || 1)}
+                        className="w-16 bg-black/40 border border-white/10 rounded px-1.5 py-0.5 text-xs text-amber-300 font-mono"
+                      />
+                      <span>Count:</span>
+                      <input
+                        type="number"
+                        min="1"
+                        value={currentCount}
+                        onChange={(e) => setCustomRatingsCountInput(parseInt(e.target.value, 10) || 1)}
+                        className="w-20 bg-black/40 border border-white/10 rounded px-1.5 py-0.5 text-xs text-slate-200 font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-900/60 p-4 rounded-2xl border border-white/10 space-y-2">
+                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Goal Target Rating</span>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-2xl font-black text-amber-400">{targetRating.toFixed(2)}</span>
+                      <Star size={16} className="text-amber-400 fill-amber-400" />
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      {targetRating >= 4.5 ? '⭐ Unlocks 4.5+ store star display' : 'Milestone rating goal'}
+                    </p>
+                  </div>
+
+                  <div className="bg-slate-900/60 p-4 rounded-2xl border border-amber-500/20 bg-gradient-to-br from-amber-950/20 to-slate-900/60 space-y-2">
+                    <span className="text-[11px] font-bold text-amber-300 uppercase tracking-wider block">5★ Reviews Needed</span>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-2xl font-black text-white">{neededFiveStars.toLocaleString()}</span>
+                      <span className="text-xs text-amber-400 font-medium">consecutive</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      {neededFiveStars === 0 ? '🎉 Target already reached!' : `At 5.0★ avg rating`}
+                    </p>
+                  </div>
+
+                  <div className="bg-slate-900/60 p-4 rounded-2xl border border-white/10 space-y-2">
+                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Projected Timeline</span>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-2xl font-black text-emerald-400">
+                        {neededFiveStars === 0 ? '0 days' : daysToTarget < 30 ? `~${daysToTarget} days` : `~${weeksToTarget.toFixed(1)} wks`}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      Paced at {weeklyVelocity} review(s) / week
+                    </p>
+                  </div>
+                </div>
+
+                {/* Interactive Controls & Strategy Guidance */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 bg-slate-900/40 p-5 rounded-2xl border border-white/5">
+                  <div className="space-y-4">
+                    <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                      <Sliders size={14} className="text-amber-400" />
+                      Simulation Controls
+                    </h4>
+
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-slate-300">Target Rating:</span>
+                        <span className="font-bold text-amber-400 font-mono">{targetRating.toFixed(2)} ★</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="4.0"
+                        max="4.95"
+                        step="0.05"
+                        value={targetRating}
+                        onChange={(e) => setTargetRating(parseFloat(e.target.value))}
+                        className="w-full accent-amber-500 cursor-pointer"
+                      />
+                      <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                        <span>4.00★</span>
+                        <span>4.50★ (Apple / Google Display Tier)</span>
+                        <span>4.95★</span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-slate-300">Estimated Weekly Review Velocity:</span>
+                        <span className="font-bold text-emerald-400 font-mono">{weeklyVelocity} reviews/wk</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="1"
+                        max="50"
+                        step="1"
+                        value={weeklyVelocity}
+                        onChange={(e) => setWeeklyVelocity(parseInt(e.target.value, 10))}
+                        className="w-full accent-emerald-500 cursor-pointer"
+                      />
+                      <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                        <span>1/wk (Slow)</span>
+                        <span>10/wk (Moderate)</span>
+                        <span>50/wk (High-growth)</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3 border-t lg:border-t-0 lg:border-l border-white/10 lg:pl-6 pt-4 lg:pt-0">
+                    <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                      <Award size={14} className="text-emerald-400" />
+                      In-App Review Prompt Strategy Rules
+                    </h4>
+                    <ul className="text-[11px] text-slate-300 space-y-2 leading-relaxed">
+                      <li className="flex items-start gap-2">
+                        <span className="text-emerald-400 font-bold shrink-0">✓</span>
+                        <span><strong>Trigger during moments of delight:</strong> Fire SKStoreReviewController / Google In-App Review after users complete a core loop action (e.g. successfully export report, hit a 7-day streak).</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-rose-400 font-bold shrink-0">✗</span>
+                        <span><strong>Never gate with pre-dialogs:</strong> Showing "Do you enjoy this app?" and routing unhappy users to support while sending happy users to the store violates <strong>Apple App Store Review Guideline 5.6.1</strong> and causes app rejection.</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-amber-400 font-bold shrink-0">⏱️</span>
+                        <span><strong>Respect OS throttling:</strong> iOS limits native review prompts to 3 times per 365-day rolling window per device. Google Play applies internal quota limits.</span>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Review Strategy Explainer */}
           <div className="bg-emerald-900/30 border border-emerald-500/20 rounded-2xl p-4 text-xs text-emerald-200 space-y-1">
             <div className="flex items-center gap-2 font-bold text-white">

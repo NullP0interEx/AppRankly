@@ -86,18 +86,35 @@ function dbUpsert(resource, params, value) {
   }
 }
 
-function fileGet(key) {
+/**
+ * Reads from disk cache with TTL expiry checking.
+ * @param {string} key
+ * @param {string} [resource]
+ * @returns {any|undefined}
+ */
+function fileGet(key, resource) {
   try {
     const filePath = path.join(dataDir, '.resolve_cache', keyToFilename(key));
     if (fs.existsSync(filePath)) {
       const raw = fs.readFileSync(filePath, 'utf8');
       const parsed = JSON.parse(raw);
+      if (resource && parsed.savedAt) {
+        const ttlSec = cache.TTL[resource] || 300;
+        if (Date.now() - parsed.savedAt > ttlSec * 1000) {
+          return undefined;
+        }
+      }
       return parsed.data;
     }
   } catch {}
   return undefined;
 }
 
+/**
+ * Writes data to disk cache with savedAt timestamp.
+ * @param {string} key
+ * @param {any} value
+ */
 function fileSet(key, value) {
   try {
     const cacheDir = path.join(dataDir, '.resolve_cache');
@@ -111,6 +128,13 @@ function fileSet(key, value) {
   }
 }
 
+/**
+ * Deduplicates concurrent identical requests via in-flight promises.
+ * @template T
+ * @param {string} key
+ * @param {() => Promise<T>} fetchFn
+ * @returns {Promise<T>}
+ */
 async function singleFlight(key, fetchFn) {
   if (_inflight.has(key)) {
     metrics.inFlightCollapses++;
@@ -166,7 +190,7 @@ async function resolve(resource, params = {}, fetchFn) {
   }
 
   // 3. File on Disk
-  const fileHit = fileGet(key);
+  const fileHit = fileGet(key, resource);
   if (fileHit !== undefined) {
     const isMissing = (fileHit === null || fileHit === '__EMPTY__' || fileHit === 'NO_DATA');
     if (!isRecentSalesReport || !isMissing) {

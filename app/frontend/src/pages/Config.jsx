@@ -79,6 +79,12 @@ function TestButton({ platform, payload, authToken, isStaticMode, isDemoMode }) 
         setResult({ success: true, provider: payload?.provider || 'openai', model: payload?.model || 'gpt-4.1-nano', usage: { inputTokens: 4, outputTokens: 2 } });
       } else if (platform === 'ntfy') {
         setResult({ success: true, message: `Test ntfy notification sent to topic '${payload?.topic || 'demo_topic'}'` });
+      } else if (platform === 'webhook') {
+        setResult({ success: true, message: `Test alert sent to webhook (demo mode)` });
+      } else if (platform === 'slack') {
+        setResult({ success: true, message: `Test message sent to Slack channel (demo mode)` });
+      } else if (platform === 'telegram') {
+        setResult({ success: true, message: `Test message sent to Telegram chat '${payload?.chatId || 'demo_chat'}' (demo mode)` });
       } else if (platform === 'git') {
         setResult({ success: true, message: `Successfully connected to Git remote repository and verified branch '${payload?.branch || 'main'}' (demo mode)` });
       } else {
@@ -94,7 +100,15 @@ function TestButton({ platform, payload, authToken, isStaticMode, isDemoMode }) 
         options.body = JSON.stringify(payload);
         options.headers = { 'Content-Type': 'application/json' };
       }
-      const endpoint = platform === 'ntfy' ? '/api/notifications/test' : `/api/test/${platform}`;
+      const endpoint = platform === 'ntfy'
+        ? '/api/notifications/test'
+        : platform === 'webhook'
+          ? '/api/notifications/test-webhook'
+          : platform === 'slack'
+            ? '/api/notifications/test-slack'
+            : platform === 'telegram'
+              ? '/api/notifications/test-telegram'
+              : `/api/test/${platform}`;
       const res = await apiFetch(endpoint, options, authToken, isStaticMode);
       const data = await res.json();
       setState(data.success ? 'ok' : 'err');
@@ -111,9 +125,15 @@ function TestButton({ platform, payload, authToken, isStaticMode, isDemoMode }) 
       ? 'Google Play'
       : platform === 'ntfy'
         ? 'ntfy Notification'
-        : platform === 'git'
-          ? 'Git Remote Repository'
-          : `AI Provider (${payload?.provider || 'active'})`;
+        : platform === 'webhook'
+          ? 'Discord/Generic Webhook'
+          : platform === 'slack'
+            ? 'Slack Incoming Webhook'
+            : platform === 'telegram'
+              ? 'Telegram Bot'
+              : platform === 'git'
+                ? 'Git Remote Repository'
+                : `AI Provider (${payload?.provider || 'active'})`;
 
   return (
     <div className="space-y-3">
@@ -156,10 +176,10 @@ function TestButton({ platform, payload, authToken, isStaticMode, isDemoMode }) 
                     <div className="text-white/50 text-[10px] mt-0.5">Tokens used: {result.usage.inputTokens || 0} in / {result.usage.outputTokens || 0} out</div>
                   )}
                 </div>
-              ) : platform === 'ntfy' ? (
+              ) : ['ntfy', 'webhook', 'slack', 'telegram'].includes(platform) ? (
                 <div>
-                  <div className="font-bold text-emerald-400">✓ Push notification sent</div>
-                  <div className="text-white/50 text-[10px] mt-0.5">{result.message || `Notification sent to topic '${payload?.topic || 'configured topic'}'`}</div>
+                  <div className="font-bold text-emerald-400">✓ Notification Delivered</div>
+                  <div className="text-white/50 text-[10px] mt-0.5">{result.message || 'Notification delivered successfully'}</div>
                 </div>
               ) : (
                 <>
@@ -172,7 +192,7 @@ function TestButton({ platform, payload, authToken, isStaticMode, isDemoMode }) 
             </div>
           ) : (
             <div>
-              <div className="font-bold text-rose-400">✗ {platform === 'ntfy' ? 'Notification failed' : 'Connection failed'}</div>
+              <div className="font-bold text-rose-400">✗ {['ntfy', 'webhook', 'slack', 'telegram'].includes(platform) ? 'Notification failed' : 'Connection failed'}</div>
               <div className="text-white/50 mt-1 break-all">{result.error || result.reason}</div>
             </div>
           )}
@@ -1169,6 +1189,79 @@ export default function Config({ authToken, isStaticMode, isDemoMode, fetchAiSta
                   onChange={v => updateEntry('ntfyTopic', v)}
                   placeholder="e.g. my_apprankly_alerts"
                 />
+              </Field>
+
+              <Field
+                label="Discord / Generic Webhook URL (webhookUrl)"
+                hint="URL to post daily briefs & alerts to your Discord channel or custom webhook. Leave empty to disable."
+              >
+                <div className="space-y-2">
+                  <Input
+                    value={entry.webhookUrl || ''}
+                    onChange={v => updateEntry('webhookUrl', v)}
+                    placeholder="https://discord.com/api/webhooks/..."
+                  />
+                  {entry.webhookUrl && entry.webhookUrl.trim() && (
+                    <TestButton
+                      platform="webhook"
+                      payload={{ webhookUrl: entry.webhookUrl }}
+                      authToken={authToken}
+                      isStaticMode={isStaticMode}
+                      isDemoMode={isDemoMode}
+                    />
+                  )}
+                </div>
+              </Field>
+
+              <Field
+                label="Slack Incoming Webhook URL (slackWebhookUrl)"
+                hint="Dedicated Slack incoming webhook to post rich formatted alerts directly into your Slack channel."
+              >
+                <div className="space-y-2">
+                  <Input
+                    value={entry.slackWebhookUrl || ''}
+                    onChange={v => updateEntry('slackWebhookUrl', v)}
+                    placeholder="https://hooks.slack.com/services/..."
+                  />
+                  {entry.slackWebhookUrl && entry.slackWebhookUrl.trim() && (
+                    <TestButton
+                      platform="slack"
+                      payload={{ slackWebhookUrl: entry.slackWebhookUrl }}
+                      authToken={authToken}
+                      isStaticMode={isStaticMode}
+                      isDemoMode={isDemoMode}
+                    />
+                  )}
+                </div>
+              </Field>
+
+              <Field
+                label="Telegram Bot Alerts (telegram)"
+                hint="Telegram Bot Token and Chat ID to receive instant alerts & morning briefings."
+              >
+                <div className="space-y-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <Input
+                      value={entry.telegram?.botToken || ''}
+                      onChange={v => updateEntry('telegram', { ...(entry.telegram || {}), botToken: v })}
+                      placeholder="Bot Token (e.g. 123456:ABC...)"
+                    />
+                    <Input
+                      value={entry.telegram?.chatId || ''}
+                      onChange={v => updateEntry('telegram', { ...(entry.telegram || {}), chatId: v })}
+                      placeholder="Chat ID (e.g. -1001234567)"
+                    />
+                  </div>
+                  {entry.telegram?.botToken && entry.telegram?.chatId && (
+                    <TestButton
+                      platform="telegram"
+                      payload={{ botToken: entry.telegram.botToken, chatId: entry.telegram.chatId }}
+                      authToken={authToken}
+                      isStaticMode={isStaticMode}
+                      isDemoMode={isDemoMode}
+                    />
+                  )}
+                </div>
               </Field>
 
               <Field
