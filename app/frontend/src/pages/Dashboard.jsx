@@ -17,7 +17,7 @@ import UpgradesChart from '../components/UpgradesChart';
 import ActiveDevicesChart from '../components/ActiveDevicesChart';
 import AllPlatformDashboard from '../components/AllPlatformDashboard';
 import ChartPanel from '../components/ChartPanel';
-import { calculateHealthScore } from '../lib/healthScore';
+import { calculateHealthBreakdown } from '../lib/healthScore';
 import SkeletonDashboard from '../components/SkeletonDashboard';
 import { findProject, getProjectUrlSegment } from '../lib/projectUtils';
 import { formatNumber } from '../lib/format';
@@ -233,7 +233,7 @@ export default function Dashboard({
     activeTrend
   } = trends;
 
-  const healthScore = useMemo(() => (stats ? calculateHealthScore(stats) : 0), [stats]);
+  const { score: healthScore, signals: healthSignals } = useMemo(() => calculateHealthBreakdown(stats), [stats]);
 
   const filteredProjects = useMemo(() => (
     platform === 'all' ? projects : projects.filter(p => p.platform === platform)
@@ -676,6 +676,7 @@ export default function Dashboard({
       {/* Hero KPI Card */}
       <HeroKPI
         value={healthScore}
+        signals={healthSignals}
         totalInstalls={stats.totalInstallCountByUser}
         activeDevices={stats.currentlyActiveDevices}
         activeProject={activeProject}

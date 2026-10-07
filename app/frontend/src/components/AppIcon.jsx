@@ -2,13 +2,14 @@ import React, { useState } from 'react';
 import { Smartphone } from 'lucide-react';
 import { PlayStoreIcon, AppleStoreIcon } from './icons/StoreIcons';
 
-export default function AppIcon({ iconUrl, name, platform, className = "w-6 h-6 rounded-md" }) {
+export default function AppIcon({ iconUrl, icon, name, platform, className = "w-6 h-6 rounded-md" }) {
   const [failed, setFailed] = useState(false);
+  const src = iconUrl || icon;
 
-  if (iconUrl && !failed) {
+  if (src && !failed) {
     return (
       <img
-        src={iconUrl}
+        src={src}
         alt={name || "App Icon"}
         onError={() => setFailed(true)}
         className={`${className} object-cover border border-white/10 shrink-0`}

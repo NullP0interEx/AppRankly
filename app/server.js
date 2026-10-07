@@ -457,7 +457,7 @@ app.get("/api/projects", authenticate, async (req, res) => {
         const p = packages[idx];
         const meta = baseConfig.appMetadata?.[p.packageName] || {};
         const cached = await getScrapedPlayStoreData(p.packageName);
-        list.push({ index: `g-${idx}`, name: meta.displayName || cached?.title || p.name, platform: 'google', packageName: p.packageName, storeUrl: meta.storeUrl || cached?.url || `https://play.google.com/store/apps/details?id=${p.packageName}`, iconUrl: meta.iconUrl || cached?.iconUrl || `https://s2.googleusercontent.com/s2/favicons?domain=play.google.com&sz=128`, hasKey: true });
+        list.push({ index: `g-${idx}`, name: meta.displayName || cached?.title || p.name, platform: 'google', packageName: p.packageName, storeUrl: meta.storeUrl || cached?.url || `https://play.google.com/store/apps/details?id=${p.packageName}`, iconUrl: meta.iconUrl || cached?.iconUrl || cached?.icon || `https://s2.googleusercontent.com/s2/favicons?domain=play.google.com&sz=128`, hasKey: true });
       }
     } catch (e) {}
     if (baseConfig.keyFilePath_apple) {
@@ -466,8 +466,9 @@ app.get("/api/projects", authenticate, async (req, res) => {
         for (let idx = 0; idx < apps.length; idx++) {
           const a = apps[idx];
           const meta = baseConfig.appMetadata?.[a.packageName || a.bundleId] || {};
-          const cached = await getScrapedAppleStoreData(a.bundleId || a.appId || a.packageName);
-          list.push({ index: `a-${idx}`, name: meta.displayName || cached?.title || `${a.name} (App Store)`, platform: 'apple', packageName: a.packageName, bundleId: a.bundleId, storeUrl: meta.storeUrl || cached?.url || (a.adamId ? `https://apps.apple.com/app/id${a.adamId}` : null), iconUrl: meta.iconUrl || cached?.iconUrl || `https://s2.googleusercontent.com/s2/favicons?domain=apps.apple.com&sz=128`, hasKey: true });
+          let cached = await getScrapedAppleStoreData(a.bundleId || a.packageName);
+          if (!cached && a.appId) cached = await getScrapedAppleStoreData(a.appId);
+          list.push({ index: `a-${idx}`, name: meta.displayName || cached?.title || cached?.trackName || `${a.name} (App Store)`, platform: 'apple', packageName: a.packageName, bundleId: a.bundleId, storeUrl: meta.storeUrl || cached?.url || cached?.trackViewUrl || (a.adamId ? `https://apps.apple.com/app/id${a.adamId}` : null), iconUrl: meta.iconUrl || cached?.iconUrl || cached?.icon || `https://s2.googleusercontent.com/s2/favicons?domain=apps.apple.com&sz=128`, hasKey: true });
         }
       } catch (e) {}
     }

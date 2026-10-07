@@ -9,7 +9,15 @@
  * - Acquisition Trend: 25% (Evaluated from install velocity)
  */
 export function calculateHealthScore(stats) {
-  if (!stats) return 0;
+  return calculateHealthBreakdown(stats).score;
+}
+
+export const HEALTH_SIGNAL_COUNT = 5;
+
+/** Same as calculateHealthScore, plus the list of signals that actually contributed. */
+export function calculateHealthBreakdown(stats) {
+  const signals = [];
+  if (!stats) return { score: 0, signals };
 
   let score = 0;
   let totalWeight = 0;
@@ -22,6 +30,7 @@ export function calculateHealthScore(stats) {
     const ratingScore = (stats.averageRating / 5) * 100;
     score += (ratingScore * (ratingWeight / 100));
     totalWeight += ratingWeight;
+    signals.push({ key: 'rating', label: 'Rating', score: Math.round(ratingScore) });
   }
 
   // Detect if stats belong to Apple or platform without uninstall metrics
@@ -38,6 +47,7 @@ export function calculateHealthScore(stats) {
     const ratioScore = Math.min(100, (ratio / 3) * 100);
     score += (ratioScore * (ratioWeight / 100));
     totalWeight += ratioWeight;
+    signals.push({ key: 'uninstalls', label: 'Install/Uninstall', score: Math.round(ratioScore) });
   }
 
   // 3. Retention Proxy (Active Devices / Total Installs)
@@ -49,6 +59,7 @@ export function calculateHealthScore(stats) {
     const normalizedRetention = Math.min(100, (retentionRate / 40) * 100);
     score += (normalizedRetention * (retentionWeight / 100));
     totalWeight += retentionWeight;
+    signals.push({ key: 'retention', label: 'Retention', score: Math.round(normalizedRetention) });
   }
 
   // 4. Rating Trend (if we have ratings over time)
@@ -71,6 +82,7 @@ export function calculateHealthScore(stats) {
 
       score += (trendScore * (trendWeight / 100));
       totalWeight += trendWeight;
+      signals.push({ key: 'ratingTrend', label: 'Rating Trend', score: trendScore });
     }
   }
 
@@ -99,12 +111,13 @@ export function calculateHealthScore(stats) {
 
       score += (installTrendScore * (installTrendWeight / 100));
       totalWeight += installTrendWeight;
+      signals.push({ key: 'acquisition', label: 'Acquisition Trend', score: installTrendScore });
     }
   }
 
   // Fallback if totalWeight is 0 but app has active userbase/installs
-  if (totalWeight === 0) return installs > 0 ? 75 : 0;
-  return Math.round((score / totalWeight) * 100);
+  if (totalWeight === 0) return { score: installs > 0 ? 75 : 0, signals };
+  return { score: Math.round((score / totalWeight) * 100), signals };
 }
 
 export function getHealthBand(score) {

@@ -20,6 +20,8 @@ async function getPlayListing(appId) {
       developer: raw.developer || raw.developerId || '',
       category: raw.genre || raw.genreId || '',
       icon: raw.icon || '',
+      iconUrl: raw.icon || '',
+      url: raw.url || '',
       headerImage: raw.headerImage || '',
       screenshots: raw.screenshots || [],
       score: raw.score || 0,
@@ -123,10 +125,12 @@ async function getAppleLookup(trackIdOrBundleId) {
 function formatAppleRawData(raw) {
   const promo = raw.promotionalText || raw.subtitle || '';
   const summary = promo || (raw.description ? raw.description.substring(0, 170).trim() : '');
+  const iconUrl = raw.artworkUrl512 || raw.artworkUrl100 || raw.artworkUrl60 || '';
 
   return {
     trackId: raw.trackId,
     bundleId: raw.bundleId,
+    title: raw.trackName || '',
     trackName: raw.trackName || '',
     subtitle: raw.subtitle || promo,
     promotionalText: raw.promotionalText || '',
@@ -134,7 +138,10 @@ function formatAppleRawData(raw) {
     description: raw.description || '',
     developer: raw.artistName || raw.sellerName || '',
     category: raw.primaryGenreName || '',
-    icon: raw.artworkUrl100 || raw.artworkUrl512 || raw.artworkUrl60 || '',
+    icon: iconUrl,
+    iconUrl: iconUrl,
+    url: raw.trackViewUrl || '',
+    trackViewUrl: raw.trackViewUrl || '',
     screenshots: raw.screenshotUrls || [],
     score: raw.averageUserRating || 0,
     ratings: raw.userRatingCount || 0,

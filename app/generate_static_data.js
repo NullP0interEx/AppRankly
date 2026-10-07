@@ -284,11 +284,10 @@ async function generate() {
               console.error(`    Error getting overview for ${app.packageName}:`, err.message);
             }
 
-            const metadata = baseConfig.appMetadata?.[app.packageName || app.bundleId] || {};
-            const storeUrl = metadata.storeUrl || appleMeta?.url || (app.adamId ? `https://apps.apple.com/app/id${app.adamId}` : null);
+            const storeUrl = metadata.storeUrl || appleMeta?.url || appleMeta?.trackViewUrl || (app.adamId ? `https://apps.apple.com/app/id${app.adamId}` : null);
             const consoleUrl = metadata.consoleUrl || `https://appstoreconnect.apple.com/apps`;
-            const iconUrl = metadata.iconUrl || appleMeta?.iconUrl || `https://s2.googleusercontent.com/s2/favicons?domain=apps.apple.com&sz=128`;
-            const name = metadata.displayName || appleMeta?.title || `${app.name} (App Store)`;
+            const iconUrl = metadata.iconUrl || appleMeta?.iconUrl || appleMeta?.icon || `https://s2.googleusercontent.com/s2/favicons?domain=apps.apple.com&sz=128`;
+            const name = metadata.displayName || appleMeta?.title || appleMeta?.trackName || `${app.name} (App Store)`;
 
             if (overviewData) {
               appleOverviews.push({ name, overview: overviewData });

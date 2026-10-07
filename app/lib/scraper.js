@@ -11,7 +11,7 @@ const APPSTORE_CACHE_FILE = path.join(DATA_DIR, "appstore_scrape_cache.json");
 
 const getScrapedAppleStoreData = async (identifier) => {
   if (!identifier) return null;
-  return resolver.resolve('scrape:apple', { identifier }, async () => {
+  const result = await resolver.resolve('scrape:apple', { identifier }, async () => {
     let cache = {};
     try {
       if (fs.existsSync(APPSTORE_CACHE_FILE)) {
@@ -31,9 +31,12 @@ const getScrapedAppleStoreData = async (identifier) => {
       const res = await axios.get(url);
       if (res.data && res.data.results && res.data.results.length > 0) {
         const item = res.data.results[0];
+        const icon = item.artworkUrl512 || item.artworkUrl100 || item.artworkUrl60 || '';
         const scraped = {
           title: item.trackName,
-          iconUrl: item.artworkUrl512 || item.artworkUrl100 || item.artworkUrl60,
+          trackName: item.trackName,
+          iconUrl: icon,
+          icon: icon,
           summary: item.description ? item.description.substring(0, 200) + '...' : '',
           descriptionHTML: item.description,
           scoreText: item.averageUserRating ? item.averageUserRating.toFixed(1) : 'N/A',
@@ -51,6 +54,7 @@ const getScrapedAppleStoreData = async (identifier) => {
           version: item.version,
           updated: item.currentVersionReleaseDate || item.releaseDate,
           url: item.trackViewUrl,
+          trackViewUrl: item.trackViewUrl,
           adamId: item.trackId,
           bundleId: item.bundleId
         };
@@ -63,11 +67,20 @@ const getScrapedAppleStoreData = async (identifier) => {
     }
     return null;
   });
+
+  if (result) {
+    if (!result.iconUrl && result.icon) result.iconUrl = result.icon;
+    if (!result.icon && result.iconUrl) result.icon = result.iconUrl;
+    if (!result.title && result.trackName) result.title = result.trackName;
+    if (!result.trackName && result.title) result.trackName = result.title;
+    if (!result.url && result.trackViewUrl) result.url = result.trackViewUrl;
+  }
+  return result;
 };
 
 const getScrapedPlayStoreData = async (appId) => {
   if (!appId) return null;
-  return resolver.resolve('scrape:google', { appId }, async () => {
+  const result = await resolver.resolve('scrape:google', { appId }, async () => {
     let cache = {};
     try {
       if (fs.existsSync(PLAYSTORE_CACHE_FILE)) {
@@ -83,6 +96,7 @@ const getScrapedPlayStoreData = async (appId) => {
       const scraped = {
         title: data.title,
         iconUrl: data.icon,
+        icon: data.icon,
         summary: data.summary,
         descriptionHTML: data.descriptionHTML || data.description,
         scoreText: data.scoreText,
@@ -110,6 +124,12 @@ const getScrapedPlayStoreData = async (appId) => {
       return null;
     }
   });
+
+  if (result) {
+    if (!result.iconUrl && result.icon) result.iconUrl = result.icon;
+    if (!result.icon && result.iconUrl) result.icon = result.iconUrl;
+  }
+  return result;
 };
 
 module.exports = {
