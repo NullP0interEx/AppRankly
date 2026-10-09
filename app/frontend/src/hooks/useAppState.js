@@ -427,12 +427,40 @@ export function useAppState() {
   const fetchAiStatus = useCallback(async () => {
     if (isDemoMode) {
       setAiStatus({
-        defaultProvider: 'openai',
+        defaultProvider: 'gemini',
         providers: [
+          { id: 'gemini', available: true, model: 'gemini-3.8-flash', name: 'Google (Gemini 3.8 Flash)' },
           { id: 'openai', available: true, model: 'gpt-5-nano', name: 'OpenAI (GPT-5 nano)' },
-          { id: 'anthropic', available: true, model: 'claude-haiku-4-5-20251001', name: 'Anthropic (Claude Haiku 4.5)' },
-          { id: 'gemini', available: true, model: 'gemini-2.5-flash-lite', name: 'Google (Gemini 2.5 Flash Lite)' }
-        ]
+          { id: 'anthropic', available: true, model: 'claude-3-7-sonnet-latest', name: 'Anthropic (Claude 3.7 Sonnet)' }
+        ],
+        supportedModels: {
+          gemini: [
+            { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash (Latest Flash / Recommended)', recommended: true },
+            { id: 'gemini-3.8-flash-lite', name: 'Gemini 3.8 Flash Lite (Latest Lite / Fast)' },
+            { id: 'gemini-3.8-pro', name: 'Gemini 3.8 Pro (Advanced Reasoning)' },
+            { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
+            { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite' },
+            { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
+            { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
+            { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash' },
+            { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro' }
+          ],
+          openai: [
+            { id: 'gpt-5-nano', name: 'GPT-5 Nano (Ultra-fast)', recommended: true },
+            { id: 'gpt-4.1-nano', name: 'GPT-4.1 Nano (Balanced)' },
+            { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
+            { id: 'gpt-4o', name: 'GPT-4o (Flagship Multimodal)' },
+            { id: 'o3-mini', name: 'o3-mini (Reasoning)' },
+            { id: 'o1', name: 'o1 (Complex Reasoning)' }
+          ],
+          anthropic: [
+            { id: 'claude-3-7-sonnet-latest', name: 'Claude 3.7 Sonnet (Hybrid Reasoning)', recommended: true },
+            { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5 (Fast)' },
+            { id: 'claude-3-5-sonnet-latest', name: 'Claude 3.5 Sonnet' },
+            { id: 'claude-3-5-haiku-latest', name: 'Claude 3.5 Haiku' },
+            { id: 'claude-3-opus-20240229', name: 'Claude 3 Opus' }
+          ]
+        }
       });
       return;
     }

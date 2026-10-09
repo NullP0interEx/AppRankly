@@ -50,7 +50,7 @@ export default function TopBar({
 
   const [isAppsExpanded, setIsAppsExpanded] = useState(() => {
     const saved = localStorage.getItem('apprankly_apps_expanded');
-    return saved !== null ? saved === 'true' : true;
+    return saved !== null ? saved === 'true' : false;
   });
 
   const [starredOnly, setStarredOnly] = useState(false);

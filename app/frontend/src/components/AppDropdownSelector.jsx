@@ -189,7 +189,7 @@ export default function AppDropdownSelector({
         </span>
 
         <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-white/10 text-slate-300 shrink-0 hidden sm:inline-block">
-          {projects.length}
+          {isAllAppsSelected ? projects.length : isAppleStoreSelected ? totalAppleCount : isPlayStoreSelected ? totalGoogleCount : (activeProject?.platform === 'apple' ? 'iOS' : 'Android')}
         </span>
 
         <ChevronDown

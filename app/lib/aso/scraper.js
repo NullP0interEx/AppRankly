@@ -1,18 +1,67 @@
 const axios = require('axios');
-const gplay = require('google-play-scraper');
+const gplayModule = require('google-play-scraper');
+const gplay = gplayModule.default || gplayModule;
 const resolver = require('../resolver');
+const { withTimeout } = require('../utils/timeout');
+
+const mainScraper = require('../scraper');
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-/**
- * Detailed Google Play listing fetch
- */
-async function getPlayListing(appId) {
-  try {
-    const raw = await gplay.app({ appId });
-    if (!raw) return null;
+function formatCachedPlayData(cached, appId) {
+  if (!cached) return null;
+  return {
+    appId: appId || cached.appId || '',
+    title: cached.title || '',
+    summary: cached.summary || '',
+    description: cached.description || cached.descriptionHTML || '',
+    developer: cached.developer || cached.developerId || '',
+    category: cached.genre || cached.category || '',
+    icon: cached.icon || cached.iconUrl || '',
+    iconUrl: cached.iconUrl || cached.icon || '',
+    url: cached.url || '',
+    headerImage: cached.headerImage || '',
+    screenshots: cached.screenshots || [],
+    score: cached.score || 0,
+    ratings: cached.ratings || 0,
+    reviews: cached.reviews || 0,
+    installs: cached.installs || '',
+    minInstalls: cached.minInstalls || 0,
+    priceText: cached.priceText || (cached.free ? 'Free' : ''),
+    contentRating: cached.contentRating || '',
+    updated: cached.updated ? new Date(cached.updated).toISOString() : new Date().toISOString(),
+    version: cached.version || '',
+    recentChanges: cached.recentChanges || '',
+    privacyPolicy: cached.privacyPolicy || '',
+    isCached: true
+  };
+}
 
-    return {
+/**
+ * Detailed Google Play listing fetch with cached fallback
+ */
+async function getPlayListing(appId, options = {}) {
+  const force = Boolean(options?.force);
+  if (!force) {
+    const existingCache = mainScraper.getCachedStoreData(appId, 'google');
+    if (existingCache && existingCache.title) {
+      return formatCachedPlayData(existingCache, appId);
+    }
+  }
+
+  try {
+    const raw = await withTimeout(gplay.app({ appId }), 7000, `Play Store scraper timed out for ${appId}`);
+    if (!raw) {
+      try {
+        const fallback = await withTimeout(mainScraper.getScrapedPlayStoreData(appId), 7000);
+        return formatCachedPlayData(fallback, appId);
+      } catch (_) {
+        const cached = mainScraper.getCachedStoreData(appId, 'google');
+        return formatCachedPlayData(cached, appId);
+      }
+    }
+
+    const listing = {
       appId: raw.appId,
       title: raw.title || '',
       summary: raw.summary || raw.shortDescription || '',
@@ -34,17 +83,26 @@ async function getPlayListing(appId) {
       updated: raw.updated ? new Date(raw.updated).toISOString() : new Date().toISOString(),
       version: raw.version || '',
       recentChanges: raw.recentChanges || '',
-      privacyPolicy: raw.privacyPolicy || ''
+      privacyPolicy: raw.privacyPolicy || '',
+      isCached: false
     };
+
+    return listing;
   } catch (err) {
-    console.warn(`[ASO Scraper] Play listing fetch failed for ${appId}:`, err.message);
-    return null;
+    console.warn(`[ASO Scraper] Play listing fetch failed for ${appId}, falling back to cache:`, err.message);
+    try {
+      const fallback = await withTimeout(mainScraper.getScrapedPlayStoreData(appId), 7000);
+      return formatCachedPlayData(fallback, appId);
+    } catch (_) {
+      const cached = mainScraper.getCachedStoreData(appId, 'google');
+      return formatCachedPlayData(cached, appId);
+    }
   }
 }
 
 async function getPlaySuggest(term, country = 'us', lang = 'en') {
   try {
-    return await gplay.suggest({ term, country, lang });
+    return await withTimeout(gplay.suggest({ term, country, lang }), 7000);
   } catch (err) {
     console.warn(`[ASO Scraper] Play suggest failed for term "${term}":`, err.message);
     return [];
@@ -53,7 +111,7 @@ async function getPlaySuggest(term, country = 'us', lang = 'en') {
 
 async function getPlaySearch(term, num = 30, country = 'us', lang = 'en') {
   try {
-    return await gplay.search({ term, num, country, lang });
+    return await withTimeout(gplay.search({ term, num, country, lang }), 7000);
   } catch (err) {
     console.warn(`[ASO Scraper] Play search failed for term "${term}":`, err.message);
     return [];
@@ -62,7 +120,7 @@ async function getPlaySearch(term, num = 30, country = 'us', lang = 'en') {
 
 async function getPlaySimilar(appId) {
   try {
-    const list = await gplay.similar({ appId });
+    const list = await withTimeout(gplay.similar({ appId }), 7000);
     return (list || []).map(raw => ({
       appId: raw.appId,
       title: raw.title || '',
@@ -81,7 +139,7 @@ async function getPlaySimilar(appId) {
 
 async function getPlayReviews(appId, num = 100, country = 'us') {
   try {
-    const res = await gplay.reviews({ appId, num, country, sort: gplay.sort.NEWEST });
+    const res = await withTimeout(gplay.reviews({ appId, num, country, sort: gplay.sort.NEWEST }), 7000);
     return res.data || [];
   } catch (err) {
     console.warn(`[ASO Scraper] Play reviews failed for ${appId}:`, err.message);
@@ -95,7 +153,7 @@ async function getPlayReviews(appId, num = 100, country = 'us') {
 async function getAppleSearch(term, country = 'us', limit = 30) {
   try {
     const url = `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&entity=software&country=${country}&limit=${limit}`;
-    const resp = await axios.get(url, { timeout: 10000 });
+    const resp = await axios.get(url, { timeout: 8000 });
     return (resp.data?.results || []).map(formatAppleRawData);
   } catch (err) {
     console.warn(`[ASO Scraper] Apple search failed for term "${term}":`, err.message);
@@ -103,28 +161,101 @@ async function getAppleSearch(term, country = 'us', limit = 30) {
   }
 }
 
-async function getAppleLookup(trackIdOrBundleId) {
+function formatCachedAppleData(cached, id) {
+  if (!cached) return null;
+  const subtitle = cached.subtitle || '';
+  const promo = cached.promotionalText || '';
+  const summary = cached.summary || subtitle || promo || (cached.description ? cached.description.substring(0, 170).trim() : '');
+  const icon = cached.iconUrl || cached.icon || '';
+  return {
+    trackId: cached.adamId || cached.trackId || id,
+    bundleId: cached.bundleId || id,
+    title: cached.title || cached.trackName || '',
+    trackName: cached.trackName || cached.title || '',
+    subtitle: subtitle,
+    promotionalText: promo,
+    summary,
+    description: cached.description || cached.descriptionHTML || '',
+    developer: cached.developer || cached.sellerName || cached.artistName || '',
+    category: cached.genre || cached.category || '',
+    icon,
+    iconUrl: icon,
+    url: cached.url || cached.trackViewUrl || '',
+    trackViewUrl: cached.trackViewUrl || cached.url || '',
+    screenshots: cached.screenshots || [],
+    score: cached.score || 0,
+    ratings: cached.ratings || cached.reviews || 0,
+    priceText: cached.priceText || (cached.free ? 'Free' : ''),
+    contentRating: cached.contentRating || '',
+    version: cached.version || '',
+    releaseNotes: cached.releaseNotes || '',
+    updated: cached.updated || new Date().toISOString(),
+    isCached: true
+  };
+}
+
+async function getAppleLookup(trackIdOrBundleId, options = {}) {
   if (!trackIdOrBundleId) return null;
-  return resolver.resolve('scrape:apple', { identifier: trackIdOrBundleId }, async () => {
+  const force = Boolean(options?.force);
+  if (!force) {
+    const existingCache = mainScraper.getCachedStoreData(trackIdOrBundleId, 'apple');
+    if (existingCache && (existingCache.title || existingCache.trackName)) {
+      if (!existingCache.subtitle && (existingCache.url || existingCache.trackViewUrl)) {
+        try {
+          const fallback = await withTimeout(mainScraper.getScrapedAppleStoreData(trackIdOrBundleId), 8000);
+          if (fallback) return formatCachedAppleData(fallback, trackIdOrBundleId);
+        } catch (_) {}
+      }
+      return formatCachedAppleData(existingCache, trackIdOrBundleId);
+    }
+  }
+
+  const cacheKey = force ? `scrape:apple:${Date.now()}` : 'scrape:apple';
+  return resolver.resolve(cacheKey, { identifier: trackIdOrBundleId }, async () => {
     try {
       const isNumeric = /^\d+$/.test(trackIdOrBundleId);
       const url = isNumeric
         ? `https://itunes.apple.com/lookup?id=${trackIdOrBundleId}`
         : `https://itunes.apple.com/lookup?bundleId=${encodeURIComponent(trackIdOrBundleId)}`;
 
-      const resp = await axios.get(url, { timeout: 10000 });
+      const resp = await axios.get(url, { timeout: 8000 });
       const raw = resp.data?.results?.[0];
-      return raw ? formatAppleRawData(raw) : null;
+      if (raw) {
+        if (!raw.subtitle && raw.trackViewUrl) {
+          try {
+            const pageDetails = await mainScraper.scrapeAppleWebPageDetails(raw.trackViewUrl);
+            raw.subtitle = pageDetails.subtitle;
+            raw.promotionalText = pageDetails.promotionalText;
+          } catch (_) {}
+        }
+        return formatAppleRawData(raw);
+      }
+
+      // If lookup returned 0 results, check cached scraped data
+      try {
+        const fallback = await withTimeout(mainScraper.getScrapedAppleStoreData(trackIdOrBundleId), 8000);
+        return formatCachedAppleData(fallback, trackIdOrBundleId);
+      } catch (_) {
+        const cached = mainScraper.getCachedStoreData(trackIdOrBundleId, 'apple');
+        return formatCachedAppleData(cached, trackIdOrBundleId);
+      }
     } catch (err) {
-      console.warn(`[ASO Scraper] Apple lookup failed for ${trackIdOrBundleId}:`, err.message);
-      return null;
+      console.warn(`[ASO Scraper] Apple lookup failed for ${trackIdOrBundleId}, falling back to cache:`, err.message);
+      try {
+        const fallback = await withTimeout(mainScraper.getScrapedAppleStoreData(trackIdOrBundleId), 8000);
+        return formatCachedAppleData(fallback, trackIdOrBundleId);
+      } catch (_) {
+        const cached = mainScraper.getCachedStoreData(trackIdOrBundleId, 'apple');
+        return formatCachedAppleData(cached, trackIdOrBundleId);
+      }
     }
   });
 }
 
 function formatAppleRawData(raw) {
-  const promo = raw.promotionalText || raw.subtitle || '';
-  const summary = promo || (raw.description ? raw.description.substring(0, 170).trim() : '');
+  const subtitle = raw.subtitle || '';
+  const promo = raw.promotionalText || '';
+  const summary = subtitle || promo || (raw.description ? raw.description.substring(0, 170).trim() : '');
   const iconUrl = raw.artworkUrl512 || raw.artworkUrl100 || raw.artworkUrl60 || '';
 
   return {
@@ -132,8 +263,8 @@ function formatAppleRawData(raw) {
     bundleId: raw.bundleId,
     title: raw.trackName || '',
     trackName: raw.trackName || '',
-    subtitle: raw.subtitle || promo,
-    promotionalText: raw.promotionalText || '',
+    subtitle: subtitle,
+    promotionalText: promo,
     summary: summary,
     description: raw.description || '',
     developer: raw.artistName || raw.sellerName || '',
@@ -163,7 +294,7 @@ async function getAppleReviewsRSS(trackIdOrBundleId, country = 'us') {
       }
     }
     const url = `https://itunes.apple.com/${country}/rss/customerreviews/id=${numericTrackId}/sortBy=mostRecent/json`;
-    const resp = await axios.get(url, { timeout: 10000 });
+    const resp = await axios.get(url, { timeout: 8000 });
     const entries = resp.data?.feed?.entry || [];
     const reviews = [];
     for (const e of entries) {

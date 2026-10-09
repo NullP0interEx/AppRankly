@@ -6,9 +6,16 @@ import pageContexts from '../data/pageContexts.json';
 import MarkdownViewer from './MarkdownViewer';
 
 const DEFAULT_MODEL_OPTIONS = [
-  { id: 'openai', name: 'OpenAI (GPT-5 nano)', provider: 'openai', model: 'gpt-5-nano' },
-  { id: 'anthropic', name: 'Anthropic (Claude Haiku 4.5)', provider: 'anthropic', model: 'claude-haiku-4-5-20251001' },
-  { id: 'gemini', name: 'Google (Gemini 2.5 Flash Lite)', provider: 'gemini', model: 'gemini-2.5-flash-lite' }
+  { id: 'gemini:gemini-3.8-flash', name: 'Google (Gemini 3.8 Flash - Latest)', provider: 'gemini', model: 'gemini-3.8-flash' },
+  { id: 'gemini:gemini-3.8-flash-lite', name: 'Google (Gemini 3.8 Flash Lite - Latest Lite)', provider: 'gemini', model: 'gemini-3.8-flash-lite' },
+  { id: 'gemini:gemini-2.5-flash-lite', name: 'Google (Gemini 2.5 Flash Lite)', provider: 'gemini', model: 'gemini-2.5-flash-lite' },
+  { id: 'gemini:gemini-3.8-pro', name: 'Google (Gemini 3.8 Pro)', provider: 'gemini', model: 'gemini-3.8-pro' },
+  { id: 'openai:gpt-5-nano', name: 'OpenAI (GPT-5 nano)', provider: 'openai', model: 'gpt-5-nano' },
+  { id: 'openai:gpt-4o-mini', name: 'OpenAI (GPT-4o mini)', provider: 'openai', model: 'gpt-4o-mini' },
+  { id: 'openai:gpt-4o', name: 'OpenAI (GPT-4o)', provider: 'openai', model: 'gpt-4o' },
+  { id: 'anthropic:claude-3-7-sonnet-latest', name: 'Anthropic (Claude 3.7 Sonnet)', provider: 'anthropic', model: 'claude-3-7-sonnet-latest' },
+  { id: 'anthropic:claude-haiku-4-5-20251001', name: 'Anthropic (Claude Haiku 4.5)', provider: 'anthropic', model: 'claude-haiku-4-5-20251001' },
+  { id: 'anthropic:claude-3-5-sonnet-latest', name: 'Anthropic (Claude 3.5 Sonnet)', provider: 'anthropic', model: 'claude-3-5-sonnet-latest' }
 ];
 
 function getPageContext(pathname) {
@@ -50,24 +57,48 @@ export default function AskRankly({
 
   // Derive model options from aiStatus if available
   const [modelOptions, setModelOptions] = useState(DEFAULT_MODEL_OPTIONS);
-  const [selectedModelId, setSelectedModelId] = useState('openai');
+  const [selectedModelId, setSelectedModelId] = useState('gemini:gemini-3.8-flash');
 
   useEffect(() => {
     if (aiStatus?.providers) {
-      const updated = aiStatus.providers.map(p => {
-        const defaultOpt = DEFAULT_MODEL_OPTIONS.find(d => d.id === p.id);
+      const options = [];
+      const supportedMap = aiStatus.supportedModels || {};
+
+      aiStatus.providers.forEach(p => {
         const displayName = p.id === 'openai' ? 'OpenAI' : p.id === 'anthropic' ? 'Anthropic' : 'Google';
-        return {
-          id: p.id,
-          name: `${displayName} (${p.model})`,
+        const providerModels = supportedMap[p.id] || p.models || [];
+
+        // Primary/configured model first
+        options.push({
+          id: `${p.id}:${p.model}`,
+          name: `${displayName} (${p.model} - Default)`,
           provider: p.id,
           model: p.model,
           available: p.available
-        };
+        });
+
+        // Other supported models
+        providerModels.forEach(m => {
+          if (m.id !== p.model) {
+            options.push({
+              id: `${p.id}:${m.id}`,
+              name: `${displayName} (${m.name || m.id})`,
+              provider: p.id,
+              model: m.id,
+              available: p.available
+            });
+          }
+        });
       });
-      setModelOptions(updated);
-      if (aiStatus.defaultProvider) {
-        setSelectedModelId(aiStatus.defaultProvider);
+
+      if (options.length > 0) {
+        setModelOptions(options);
+        const defaultProvider = aiStatus.defaultProvider || 'gemini';
+        setSelectedModelId(prev => {
+          if (options.some(o => o.id === prev)) return prev;
+          const match = options.find(o => o.provider === defaultProvider);
+          return match ? match.id : options[0].id;
+        });
       }
     }
   }, [aiStatus]);

@@ -6,6 +6,7 @@ const gplay = gplayModule.default || gplayModule;
 const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
+const { withTimeout } = require("./lib/utils/timeout");
 
 const getBaseConfig = () => {
   const configPath = process.env.CONFIG_PATH || path.join(__dirname, "..", "config", "config.json");
@@ -40,7 +41,7 @@ const copyRecursiveSync = (src, dest) => {
 
 const getScrapedPlayStoreData = async (appId) => {
   try {
-    const details = await gplay.app({ appId });
+    const details = await withTimeout(gplay.app({ appId }), 7000, `Play Store scrape timed out for ${appId}`);
     return {
       title: details.title,
       iconUrl: details.icon,
@@ -77,7 +78,7 @@ const getScrapedAppleStoreData = async (identifier) => {
       ? `https://itunes.apple.com/lookup?id=${identifier}`
       : `https://itunes.apple.com/lookup?bundleId=${identifier}`;
 
-    const res = await axios.get(url);
+    const res = await axios.get(url, { timeout: 7000 });
     if (res.data && res.data.results && res.data.results.length > 0) {
       const item = res.data.results[0];
       return {
@@ -248,7 +249,14 @@ async function generate() {
             dataDir: path.join(__dirname, "data")
           });
 
-          const apps = await appleViewer.listPackages();
+          let apps = await appleViewer.listPackages();
+          const ignoredApple = (baseConfig.ignoredPackages || []).map(s => String(s).trim().toLowerCase());
+          apps = apps.filter(a => 
+            !ignoredApple.includes(String(a.packageName || '').toLowerCase()) &&
+            !ignoredApple.includes(String(a.bundleId || '').toLowerCase()) &&
+            !ignoredApple.includes(String(a.appId || '').toLowerCase()) &&
+            !ignoredApple.includes(String(a.name || '').toLowerCase())
+          );
           for (const app of apps) {
             console.log(`  Apple App: ${app.packageName}`);
             const pkgDir = path.join(docsDataDir, app.packageName);

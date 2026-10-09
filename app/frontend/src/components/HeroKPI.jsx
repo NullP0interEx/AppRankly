@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Zap, ShieldCheck, Cpu, Activity, Star, Download, ExternalLink, Globe, Tag, RefreshCw, Database, Clock } from 'lucide-react';
 import InfoTooltip from './InfoTooltip';
-import { getHealthBand } from '../lib/healthScore';
+import { getHealthBand, HEALTH_SIGNAL_COUNT } from '../lib/healthScore';
 import { apiFetch } from '../lib/api';
 import { formatNumber, formatDataFreshness } from '../lib/format';
 
@@ -32,10 +32,11 @@ const BAND_STYLES = {
   },
 };
 
-export default function HeroKPI({ value, totalInstalls, activeDevices, activeProject, authToken, isStaticMode, lastDataDate, hasUninstallData = true }) {
+export default function HeroKPI({ value, signals = [], totalInstalls, activeDevices, activeProject, authToken, isStaticMode, lastDataDate, hasUninstallData = true }) {
   const band = getHealthBand(value);
   const styles = BAND_STYLES[band.color] || BAND_STYLES.blue;
   const isApple = activeProject?.platform === 'apple' || activeProject?.platform === 'appstore' || hasUninstallData === false;
+  const hasTelemetry = !isApple && typeof activeDevices === 'number' && activeDevices > 0;
 
   const [storeDetails, setStoreDetails] = useState(null);
   const [loadingScrape, setLoadingScrape] = useState(false);
@@ -186,6 +187,22 @@ export default function HeroKPI({ value, totalInstalls, activeDevices, activePro
             {band.label === 'Needs Work' && (isApple ? "Some metrics are underperforming. Check your rating trends and active retention." : "Some metrics are underperforming. Check your rating trends and uninstall rates.")}
             {band.label === 'At Risk' && "Immediate action recommended. Significant issues detected in retention or ratings."}
           </p>
+
+          {/* Health Score Breakdown by Signals */}
+          {signals.length > 0 && (
+            <div className="mt-3 flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] text-white/50">Based on {signals.length} of {HEALTH_SIGNAL_COUNT} signals:</span>
+              {signals.map((s) => (
+                <span
+                  key={s.key}
+                  className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-white/5 text-slate-300 border border-white/10"
+                  title={`${s.label} signal score: ${s.score}/100`}
+                >
+                  {s.label}: <strong className="text-white">{s.score}</strong>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="flex flex-wrap gap-4 lg:gap-10 items-center">
@@ -200,9 +217,17 @@ export default function HeroKPI({ value, totalInstalls, activeDevices, activePro
           <div className="w-px h-12 bg-white/10 hidden lg:block" />
           <div className="space-y-1">
             <p className="text-xs font-semibold text-slate-300 uppercase tracking-wider">Active Devices</p>
-            <p className="text-2xl font-bold">{formatNumber(activeDevices)}</p>
+            <p className="text-2xl font-bold">
+              {hasTelemetry ? formatNumber(activeDevices) : isApple ? '—' : (typeof activeDevices === 'number' && activeDevices > 0 ? formatNumber(activeDevices) : '—')}
+            </p>
             <div className="flex items-center text-[11px] text-slate-400 font-medium">
-              Install Survival: <span className="font-bold text-accent-emerald ml-1">{totalInstalls > 0 ? `${((activeDevices / totalInstalls) * 100).toFixed(1)}%` : '—'}</span>
+              {hasTelemetry ? (
+                <>Install Survival: <span className="font-bold text-accent-emerald ml-1">{totalInstalls > 0 ? `${((activeDevices / totalInstalls) * 100).toFixed(1)}%` : '—'}</span></>
+              ) : isApple ? (
+                <span className="text-slate-500 italic">Not tracked by App Store</span>
+              ) : (
+                <span className="text-slate-500 italic">No telemetry data</span>
+              )}
             </div>
           </div>
         </div>
@@ -214,7 +239,7 @@ export default function HeroKPI({ value, totalInstalls, activeDevices, activePro
           {loadingScrape ? (
             <div className="flex items-center space-x-2 text-xs text-white/60 py-4">
               <RefreshCw className="animate-spin w-4 h-4 text-accent-blue" />
-              <span>Grabbing Play Store metadata via scraper...</span>
+              <span>Grabbing store metadata via scraper...</span>
             </div>
           ) : scrapeError ? (
             <div className="text-xs text-rose-400 py-2">
@@ -252,12 +277,14 @@ export default function HeroKPI({ value, totalInstalls, activeDevices, activePro
               {/* Scraped Stats Badges */}
               <div className="bg-white/5 border border-white/10 p-4 rounded-xl space-y-3 text-xs">
                 <div className="flex justify-between items-center pb-2 border-b border-white/5">
-                  <span className="text-white/50 flex items-center gap-1"><Star size={12} className="text-amber-400" /> Play Rating</span>
+                  <span className="text-white/50 flex items-center gap-1">
+                    <Star size={12} className="text-amber-400" /> {isApple ? 'App Store Rating' : 'Play Rating'}
+                  </span>
                   <span className="font-bold text-amber-400">{storeDetails.scoreText || (storeDetails.score ? storeDetails.score.toFixed(1) : 'Unrated')}</span>
                 </div>
                 <div className="flex justify-between items-center pb-2 border-b border-white/5">
                   <span className="text-white/50 flex items-center gap-1"><Download size={12} className="text-accent-blue" /> Store Installs</span>
-                  <span className="font-bold text-white">{storeDetails.installs || '—'}</span>
+                  <span className="font-bold text-white">{storeDetails.installs && storeDetails.installs !== 'N/A' ? storeDetails.installs : '—'}</span>
                 </div>
                 <div className="flex justify-between items-center pb-2 border-b border-white/5">
                   <span className="text-white/50 flex items-center gap-1"><Tag size={12} className="text-accent-emerald" /> Category & Price</span>

@@ -7,6 +7,7 @@ const { getAIStatus, generateJSON } = require('../lib/ai');
 const prompts = require('../lib/ai/prompts');
 const scraper = require('../lib/aso/scraper');
 const { validateMetadata, simulateCoverage } = require('../lib/aso/coverage');
+const { startPortfolioJob, cancelPortfolioJob, getPortfolioJobStatus, ensureAppSnapshot } = require('../lib/aso/portfolioJob');
 
 const AI_PRICING = {
   openai: { inputPerToken: 0.0000025, outputPerToken: 0.0000100 },
@@ -101,7 +102,7 @@ router.post('/ai/test', async (req, res) => {
 /**
  * ASO Overview - Return all cached keyword, rank, competitor, review, listing data
  */
-router.post('/aso/overview', (req, res) => {
+router.post('/aso/overview', async (req, res) => {
   const { packageName, platform = 'play' } = req.body;
   if (!packageName) return res.status(400).json({ error: 'packageName is required' });
 
@@ -182,11 +183,20 @@ router.post('/aso/overview', (req, res) => {
       WHERE package_name = ? AND platform = ?
     `).get(packageName, platform) || { runCount: 0, totalCost: 0 };
 
-    const latestSnapshot = db.prepare(`
+    let latestSnapshot = db.prepare(`
       SELECT * FROM aso_listing_snapshot
       WHERE package_name = ? AND platform = ?
       ORDER BY fetched_at DESC LIMIT 1
     `).get(packageName, platform);
+
+    // If no snapshot in DB yet, utilize cached/live store scraper to populate
+    if (!latestSnapshot) {
+      try {
+        latestSnapshot = await ensureAppSnapshot(packageName, platform, { force: false });
+      } catch (snapErr) {
+        console.warn('[ASO Endpoint] Fallback snapshot error:', snapErr.message);
+      }
+    }
 
     const timeline = db.prepare(`
       SELECT * FROM metadata_timeline
@@ -212,6 +222,64 @@ router.post('/aso/overview', (req, res) => {
   } catch (err) {
     console.error('[ASO Endpoint] Overview error:', err);
     res.status(500).json({ error: 'Failed to fetch ASO overview' });
+  }
+});
+
+/**
+ * Repull fresh store metadata for a single app & update cache
+ */
+router.post('/aso/repull', async (req, res) => {
+  const { packageName, platform = 'play' } = req.body;
+  if (!packageName) return res.status(400).json({ error: 'packageName is required' });
+
+  try {
+    const snapshot = await ensureAppSnapshot(packageName, platform, { force: true });
+    res.json({
+      success: true,
+      listingSnapshot: snapshot,
+      message: snapshot ? 'Store metadata re-pulled and cache updated' : 'No store metadata found (app may be dormant or unlisted)'
+    });
+  } catch (err) {
+    console.error('[ASO Endpoint] Repull error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Portfolio ASO Job Endpoints (Parent ASO Tab)
+ */
+router.post('/aso/portfolio/job/start', (req, res) => {
+  const { platform = 'all', force = false, refreshOnly = false, runAi = true, provider, model } = req.body;
+  try {
+    const result = startPortfolioJob(platform, {
+      force: Boolean(force),
+      refreshOnly: Boolean(refreshOnly),
+      runAi: Boolean(runAi),
+      provider,
+      model
+    });
+    res.json(result);
+  } catch (err) {
+    console.error('[ASO Endpoint] Portfolio job start error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/aso/portfolio/job/status', (req, res) => {
+  try {
+    const status = getPortfolioJobStatus();
+    res.json(status);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/aso/portfolio/job/cancel', (req, res) => {
+  try {
+    const result = cancelPortfolioJob();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -621,41 +689,25 @@ router.post('/aso/prompt-preview', async (req, res) => {
           installs: snap.installs_exact ? `${snap.installs_exact}+` : '',
           summary: snap.short_desc,
           subtitle: snap.subtitle,
-          description: snap.description
+          promotionalText: snap.promotional_text || '',
+          description: snap.description,
+          screenshots_json: snap.screenshots_json,
+          updated: snap.updated_at
         };
       }
     }
 
-    const defaultFocus = focusArea || 'Metadata optimization & keyword placement';
-
-    let title = detailedData?.title || detailedData?.trackName || packageName;
-    let dev = detailedData?.developer || 'N/A';
-    let cat = detailedData?.category || 'N/A';
-    let summaryHeader = platform === 'apple' ? '[SUBTITLE / PROMOTIONAL TEXT]' : '[SHORT DESCRIPTION]';
-    let summary = detailedData?.promotionalText || detailedData?.subtitle || detailedData?.summary || '';
-    let desc = detailedData?.description || '';
-
-    let userPrompt = `Audit the following ${platform} app listing against store conversion and keyword discovery best practices:
-Focus Area: ${defaultFocus}
-
-=== STORE LISTING METADATA ===
-App Title / Name: ${title}
-Package / App ID: ${packageName}
-Developer: ${dev}
-Category: ${cat}
-Rating: ${detailedData?.score || 0} (${detailedData?.ratings || 0} ratings)
-Content Rating: ${detailedData?.contentRating || 'N/A'}
-Price: ${detailedData?.priceText || 'Free'}
-Installs: ${detailedData?.installs || 'N/A'}
-
-${summaryHeader}
-${summary || 'None'}
-
-[FULL DESCRIPTION]
-${desc || 'None'}`;
+    const defaultFocus = focusArea || 'Metadata optimization, character limit efficiency & keyword discovery';
+    const systemPrompt = prompts.auditPrompt.getSystemPrompt(platform);
+    const userPrompt = prompts.auditPrompt.buildUserPrompt({
+      platform,
+      metadata: detailedData,
+      packageName,
+      focusArea: defaultFocus
+    });
 
     res.json({
-      systemPrompt: prompts.auditPrompt.system,
+      systemPrompt,
       userPrompt,
       scrapedListingText: userPrompt,
       focusArea: defaultFocus,
@@ -674,28 +726,41 @@ router.post('/aso/audit', async (req, res) => {
   if (!packageName) return res.status(400).json({ error: 'packageName required' });
 
   try {
-    let listingText = customListingText || '';
     let detailedData = null;
 
-    if (!listingText) {
+    if (!customListingText) {
       if (isPlayPlatform(platform)) {
         detailedData = await scraper.getPlayListing(packageName);
-        if (detailedData) {
-          listingText = `Title: ${detailedData.title}\nDeveloper: ${detailedData.developer}\nCategory: ${detailedData.category}\nRating: ${detailedData.score} (${detailedData.ratings} ratings)\nContent Rating: ${detailedData.contentRating}\nInstalls: ${detailedData.installs}\nShort Description: ${detailedData.summary}\nDescription: ${detailedData.description}`;
-        } else {
-          listingText = `Package: ${packageName}`;
-        }
       } else {
         detailedData = await scraper.getAppleLookup(packageName);
-        if (detailedData) {
-          listingText = `Name: ${detailedData.trackName}\nDeveloper: ${detailedData.developer}\nCategory: ${detailedData.category}\nRating: ${detailedData.score} (${detailedData.ratings} ratings)\nContent Rating: ${detailedData.contentRating}\nPrice: ${detailedData.priceText}\nSubtitle: ${detailedData.subtitle}\nDescription: ${detailedData.description}`;
-        } else {
-          listingText = `App ID: ${packageName}`;
+      }
+
+      if (!detailedData && db) {
+        const snap = db.prepare(`
+          SELECT * FROM aso_listing_snapshot WHERE package_name = ? AND platform = ? ORDER BY fetched_at DESC LIMIT 1
+        `).get(packageName, platform);
+        if (snap) {
+          detailedData = {
+            title: snap.title,
+            developer: snap.developer,
+            category: snap.category,
+            score: snap.score,
+            ratings: snap.ratings_count,
+            contentRating: snap.content_rating,
+            priceText: snap.price,
+            installs: snap.installs_exact ? `${snap.installs_exact}+` : '',
+            summary: snap.short_desc,
+            subtitle: snap.subtitle,
+            promotionalText: snap.promotional_text || '',
+            description: snap.description,
+            screenshots_json: snap.screenshots_json,
+            updated: snap.updated_at
+          };
         }
       }
     }
 
-    // Cache detailed snapshot in SQLite
+    // Cache detailed snapshot in SQLite if newly fetched
     if (db && detailedData) {
       db.prepare(`
         INSERT INTO aso_listing_snapshot (
@@ -706,39 +771,44 @@ router.post('/aso/audit', async (req, res) => {
       `).run(
         packageName, platform, platform,
         detailedData.title || detailedData.trackName || '',
-        detailedData.summary || '',
+        detailedData.summary || detailedData.short_desc || '',
         detailedData.subtitle || '',
         detailedData.description || '',
         detailedData.developer || '',
         detailedData.category || '',
-        detailedData.icon || '',
+        detailedData.icon || detailedData.iconUrl || '',
         JSON.stringify(detailedData.screenshots || []),
         detailedData.score || 0,
-        detailedData.ratings || 0,
-        detailedData.minInstalls || 0,
+        detailedData.ratings || detailedData.ratings_count || 0,
+        detailedData.minInstalls || detailedData.installs_exact || 0,
         detailedData.priceText || '',
         detailedData.contentRating || '',
         detailedData.updated || ''
       );
     }
 
-    const promptText = customListingText || `Audit the following ${platform} listing:${focusArea ? `\nFocus Area: ${focusArea}` : ''}\n\n${listingText}`;
-
-    // Enrich with telemetry if provided
-    let enrichedPrompt = promptText;
-    const { summarizedData } = req.body;
-    if (summarizedData) {
-      enrichedPrompt += `\n\n=== LIVE PERFORMANCE TELEMETRY ===\nInstalls: ${summarizedData.installs || 0}\nUninstalls: ${summarizedData.uninstalls || 0}\nActive Devices: ${summarizedData.activeDevices || 0}\nHealth Score: ${summarizedData.healthScore || 'N/A'}/100`;
-    }
+    const systemPrompt = prompts.auditPrompt.getSystemPrompt(platform);
+    const promptText = prompts.auditPrompt.buildUserPrompt({
+      platform,
+      metadata: detailedData,
+      packageName,
+      focusArea,
+      liveTelemetry: req.body.summarizedData,
+      customListingText
+    });
 
     const result = await generateJSON({
-      system: prompts.auditPrompt.system,
-      prompt: enrichedPrompt,
+      system: systemPrompt,
+      prompt: promptText,
       schema: prompts.auditPrompt.schema,
       provider,
       customModel: model,
       maxTokens: maxTokens ? parseInt(maxTokens, 10) : undefined
     });
+
+    if (result?.data) {
+      prompts.calibrateAuditScore(result.data);
+    }
 
     if (db) {
       const inputHash = crypto.createHash('md5').update(promptText).digest('hex');

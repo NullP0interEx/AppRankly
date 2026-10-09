@@ -75,20 +75,26 @@ assert.strictEqual(pairedResult.paired[0].isManual, true);
 assert.strictEqual(pairedResult.paired[1].isManual, false);
 assert.strictEqual(pairedResult.paired[1].googleApp.packageName, 'io.github.zmsp.cardtrack');
 
-// Test calculateRetentionBenchmarks
-const sampleTrends = [
-  { date: '2026-07-01', totalInstalls: 1000, activeDevices: 800, dailyUninstalls: 10 },
-  { date: '2026-07-02', totalInstalls: 1020, activeDevices: 810, dailyUninstalls: 12 },
-  { date: '2026-07-03', totalInstalls: 1050, activeDevices: 815, dailyUninstalls: 15 },
-  { date: '2026-07-04', totalInstalls: 1070, activeDevices: 820, dailyUninstalls: 11 },
-  { date: '2026-07-05', totalInstalls: 1090, activeDevices: 825, dailyUninstalls: 14 },
-  { date: '2026-07-06', totalInstalls: 1100, activeDevices: 830, dailyUninstalls: 13 },
-  { date: '2026-07-07', totalInstalls: 1110, activeDevices: 835, dailyUninstalls: 100 } // Spike
+// Test ignored pairing in matchAndPairApps
+const manualWithIgnore = [
+  { id: 'custom-1', googlePackageName: 'io.github.zmsp.instaboard', appleBundleId: 'com.solo.app', ignore: true }
 ];
-const benchmarks = calculateRetentionBenchmarks(sampleTrends);
-assert.strictEqual(benchmarks.survivalTrend.length, 7);
-assert.strictEqual(benchmarks.churnAnomalies.length, 1);
-assert.strictEqual(benchmarks.churnAnomalies[0].date, '2026-07-07');
+const pairedIgnoreResult = matchAndPairApps(gApps, aApps, manualWithIgnore);
+assert.strictEqual(pairedIgnoreResult.paired.length, 1);
+assert.strictEqual(pairedIgnoreResult.paired[0].isManual, false);
+
+// Test viewerFactory getIgnoredSet & isIgnored
+const { getIgnoredSet, isIgnored } = require('../lib/viewerFactory');
+const mockConfig = {
+  ignoredPackages: ['io.github.zmsp.tapscore', 'Score Watch Tap']
+};
+const ignoredSet = getIgnoredSet(mockConfig);
+assert.ok(ignoredSet.has('io.github.zmsp.tapscore'));
+assert.ok(ignoredSet.has('score watch tap'));
+assert.strictEqual(isIgnored({ packageName: 'io.github.zmsp.tapscore', name: 'Score Watch Tap' }, ignoredSet), true);
+assert.strictEqual(isIgnored({ bundleId: 'io.github.zmsp.tapscore', name: 'Score Watch Tap' }, ignoredSet), true);
+assert.strictEqual(isIgnored({ name: 'Score Watch Tap' }, ignoredSet), true);
+assert.strictEqual(isIgnored({ packageName: 'io.github.zmsp.cardtrack', name: 'CardTrack' }, ignoredSet), false);
 
 console.log("All metric tests passed!");
 

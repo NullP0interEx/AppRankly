@@ -16,18 +16,37 @@ import {
 import { clsx } from 'clsx';
 import { getProjectUrlSegment } from '../lib/projectUtils';
 
-const navItems = [
-  { id: 'overview', label: 'Overview', icon: LayoutDashboard, path: '/all/all' },
-  { id: 'details', label: 'App Details', icon: Smartphone, path: '/details' },
-  { id: 'retention', label: 'Retention', icon: Users, path: '/retention' },
-  { id: 'store', label: 'Store (ASO)', icon: Eye, path: '/store' },
-  { id: 'releases', label: 'Releases', icon: Tag, path: '/releases' },
-  { id: 'notes', label: 'Notes', icon: Edit3, path: '/notes' },
-  { id: 'reports', label: 'Reports', icon: FileText, path: '/reports' },
-  { id: 'config', label: 'Config', icon: Settings, path: '/config' },
-  { id: 'glossary', label: 'Glossary', icon: BookOpen, path: '/glossary' },
+const navGroups = [
+  {
+    title: 'Monitor',
+    items: [
+      { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+      { id: 'details', label: 'App Details', icon: Smartphone },
+      { id: 'retention', label: 'Retention', icon: Users },
+    ]
+  },
+  {
+    title: 'Grow',
+    items: [
+      { id: 'store', label: 'Store (ASO)', icon: Eye },
+      { id: 'releases', label: 'Releases', icon: Tag },
+    ]
+  },
+  {
+    title: 'Work',
+    items: [
+      { id: 'notes', label: 'Notes', icon: Edit3 },
+      { id: 'reports', label: 'Reports', icon: FileText },
+    ]
+  },
+  {
+    title: 'Settings',
+    items: [
+      { id: 'config', label: 'Config', icon: Settings },
+      { id: 'glossary', label: 'Glossary', icon: BookOpen },
+    ]
+  }
 ];
-
 
 export default function Sidebar({
   collapsed,
@@ -81,62 +100,74 @@ export default function Sidebar({
           </button>
         </div>
 
-        {/* Nav */}
-        <nav className="flex-1 px-2 md:px-3 py-3 md:py-4 space-y-1 md:space-y-1.5 overflow-y-auto custom-scrollbar">
-          {navItems.map((item) => {
-            const platSegment = platform === 'google' ? 'android' : platform === 'apple' ? 'apple' : 'all';
-            const projSegment = selectedProjectIndex || 'all';
-            const searchStr = location.search;
+        {/* Nav with Group Sections */}
+        <nav className="flex-1 px-2 md:px-3 py-3 md:py-4 space-y-3 overflow-y-auto custom-scrollbar">
+          {navGroups.map((group, groupIdx) => (
+            <div key={group.title} className="space-y-1">
+              {(!collapsed || window.innerWidth < 768) ? (
+                <div className="px-3 pt-1 pb-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 select-none">
+                  {group.title}
+                </div>
+              ) : groupIdx > 0 ? (
+                <div className="my-1.5 mx-2 border-t border-white/5" />
+              ) : null}
 
-            let targetPath = `/${platSegment}/all${searchStr}`;
-            if (item.id !== 'overview') {
-              const actualProj = (item.id === 'details' && (projSegment === 'all' || !projSegment) && projects.length > 0)
-                ? getProjectUrlSegment(projects[0])
-                : projSegment;
-              targetPath = `/${item.id}/${platSegment}/${actualProj}${searchStr}`;
-            }
+              {group.items.map((item) => {
+                const platSegment = platform === 'google' ? 'android' : platform === 'apple' ? 'apple' : 'all';
+                const projSegment = selectedProjectIndex || 'all';
+                const searchStr = location.search;
 
-            return (
-              <NavLink
-                key={item.id}
-                to={targetPath}
-                onClick={() => {
-                  if (window.innerWidth < 768) {
-                    setCollapsed(true);
-                  }
-                  if (item.id === 'overview') {
-                    if (setSelectedProjectIndex) setSelectedProjectIndex('all');
-                  } else if (item.id === 'details') {
-                    if ((selectedProjectIndex === 'all' || !selectedProjectIndex) && projects.length > 0) {
-                      const firstSeg = getProjectUrlSegment(projects[0]);
-                      if (setSelectedProjectIndex) setSelectedProjectIndex(firstSeg);
-                    }
-                  }
-                }}
-                className={({ isActive }) => {
-                  const currentPath = location.pathname;
-                  const firstSegment = currentPath.split('/')[1] || '';
-                  const knownSubRoutes = ['details', 'store', 'retention', 'releases', 'notes', 'reports', 'config', 'glossary', 'demo'];
+                let targetPath = `/${platSegment}/all${searchStr}`;
+                if (item.id !== 'overview') {
+                  const actualProj = (item.id === 'details' && (projSegment === 'all' || !projSegment) && projects.length > 0)
+                    ? getProjectUrlSegment(projects[0])
+                    : projSegment;
+                  targetPath = `/${item.id}/${platSegment}/${actualProj}${searchStr}`;
+                }
 
-                  let isReallyActive = isActive;
-                  if (item.id === 'overview') {
-                    isReallyActive = !knownSubRoutes.includes(firstSegment);
-                  } else {
-                    isReallyActive = firstSegment === item.id;
-                  }
-                  return clsx(
-                    "nav-link flex items-center space-x-3 px-3 py-3 md:py-2.5 rounded-xl transition-all cursor-pointer text-xs font-semibold whitespace-nowrap overflow-hidden min-h-[44px]",
-                    isReallyActive ? "bg-accent-blue/20 text-white shadow-lg border border-accent-blue/30" : "text-slate-400 hover:text-white hover:bg-white/5",
-                    collapsed && "md:justify-center md:px-0"
-                  );
-                }}
-                title={collapsed ? item.label : ""}
-              >
-                <item.icon size={18} className="flex-shrink-0" />
-                {(!collapsed || window.innerWidth < 768) && <span>{item.label}</span>}
-              </NavLink>
-            );
-          })}
+                return (
+                  <NavLink
+                    key={item.id}
+                    to={targetPath}
+                    onClick={() => {
+                      if (window.innerWidth < 768) {
+                        setCollapsed(true);
+                      }
+                      if (item.id === 'overview') {
+                        if (setSelectedProjectIndex) setSelectedProjectIndex('all');
+                      } else if (item.id === 'details') {
+                        if ((selectedProjectIndex === 'all' || !selectedProjectIndex) && projects.length > 0) {
+                          const firstSeg = getProjectUrlSegment(projects[0]);
+                          if (setSelectedProjectIndex) setSelectedProjectIndex(firstSeg);
+                        }
+                      }
+                    }}
+                    className={({ isActive }) => {
+                      const currentPath = location.pathname;
+                      const firstSegment = currentPath.split('/')[1] || '';
+                      const knownSubRoutes = ['details', 'store', 'retention', 'releases', 'notes', 'reports', 'config', 'glossary', 'demo'];
+
+                      let isReallyActive = isActive;
+                      if (item.id === 'overview') {
+                        isReallyActive = !knownSubRoutes.includes(firstSegment);
+                      } else {
+                        isReallyActive = firstSegment === item.id;
+                      }
+                      return clsx(
+                        "nav-link flex items-center space-x-3 px-3 py-2.5 rounded-xl transition-all cursor-pointer text-xs font-semibold whitespace-nowrap overflow-hidden min-h-[42px]",
+                        isReallyActive ? "bg-accent-blue/20 text-white shadow-lg border border-accent-blue/30" : "text-slate-400 hover:text-white hover:bg-white/5",
+                        collapsed && "md:justify-center md:px-0"
+                      );
+                    }}
+                    title={collapsed ? `${group.title} · ${item.label}` : ""}
+                  >
+                    <item.icon size={18} className="flex-shrink-0" />
+                    {(!collapsed || window.innerWidth < 768) && <span>{item.label}</span>}
+                  </NavLink>
+                );
+              })}
+            </div>
+          ))}
         </nav>
 
         {/* My Apps & Support */}

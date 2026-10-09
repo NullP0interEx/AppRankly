@@ -514,7 +514,7 @@ class AppleAppStoreStatsViewer {
           ? `https://itunes.apple.com/lookup?id=${target}`
           : `https://itunes.apple.com/lookup?bundleId=${target}`;
         
-        const res = await axios.get(url);
+        const res = await axios.get(url, { timeout: 8000 });
         if (res.data && res.data.results && res.data.results.length > 0) {
           const item = res.data.results[0];
           return {

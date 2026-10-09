@@ -232,21 +232,23 @@ export default function PortfolioSmallMultiples({ projects = [], appTrends = {},
             </span>
           </div>
           
-          {/* 3-Line Legend */}
-          <div className="flex items-center space-x-3 text-xs font-semibold text-slate-300 bg-slate-950/40 px-3 py-1 rounded-xl border border-white/10">
-            <span className="flex items-center gap-1.5" title="Combined Multi-Platform Installs (Solid Blue)">
-              <span className="w-3 h-1 bg-[#00d2ff] rounded-full inline-block shadow-sm shadow-[#00d2ff]/50" />
-              Combined
-            </span>
-            <span className="flex items-center gap-1.5" title="Google Play Store Installs (Dotted Green)">
-              <span className="w-3 h-1 border-b-2 border-dashed border-[#34d399] inline-block shadow-sm shadow-[#34d399]/50" />
-              Android
-            </span>
-            <span className="flex items-center gap-1.5" title="Apple App Store Installs (Dotted White)">
-              <span className="w-3 h-1 border-b-2 border-dashed border-white inline-block shadow-sm shadow-white/50" />
-              Apple
-            </span>
-          </div>
+          {/* Multi-Line Legend (only shown when multiple platforms exist) */}
+          {projects.some(p => p.platform === 'apple') && projects.some(p => p.platform === 'google') && (
+            <div className="flex items-center space-x-3 text-xs font-semibold text-slate-300 bg-slate-950/40 px-3 py-1 rounded-xl border border-white/10">
+              <span className="flex items-center gap-1.5" title="Combined Multi-Platform Installs (Solid Blue)">
+                <span className="w-3 h-1 bg-[#00d2ff] rounded-full inline-block shadow-sm shadow-[#00d2ff]/50" />
+                Combined
+              </span>
+              <span className="flex items-center gap-1.5" title="Google Play Store Installs (Dotted Green)">
+                <span className="w-3 h-1 border-b-2 border-dashed border-[#34d399] inline-block shadow-sm shadow-[#34d399]/50" />
+                Android
+              </span>
+              <span className="flex items-center gap-1.5" title="Apple App Store Installs (Dotted White)">
+                <span className="w-3 h-1 border-b-2 border-dashed border-white inline-block shadow-sm shadow-white/50" />
+                Apple
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center space-x-3">
@@ -358,31 +360,29 @@ export default function PortfolioSmallMultiples({ projects = [], appTrends = {},
                     </div>
                   </div>
 
-                  {/* Store Platform Breakdown Pill */}
-                  <div className="flex items-center space-x-1.5 text-[10px] font-semibold bg-slate-950/60 px-2.5 py-1 rounded-xl border border-white/10 shrink-0 font-mono shadow-inner">
-                    {appleInstalls > 0 || proj.platform === 'apple' ? (
+                  {/* Store Platform Breakdown Pill or Peak/Avg */}
+                  {isPairedMerged || (appleInstalls > 0 && googleInstalls > 0) ? (
+                    <div className="flex items-center space-x-1.5 text-[10px] font-semibold bg-slate-950/60 px-2.5 py-1 rounded-xl border border-white/10 shrink-0 font-mono shadow-inner">
                       <span className="text-sky-300 flex items-center gap-1">
                         <AppleStoreIcon size={10} /> {formatNumber(appleInstalls)}
                       </span>
-                    ) : null}
-
-                    {((appleInstalls > 0 || proj.platform === 'apple') && (googleInstalls > 0 || proj.platform === 'google')) && (
                       <span className="text-slate-600 font-bold">•</span>
-                    )}
-
-                    {googleInstalls > 0 || proj.platform === 'google' ? (
                       <span className="text-emerald-400 flex items-center gap-1">
                         <PlayStoreIcon size={10} /> {formatNumber(googleInstalls)}
                       </span>
-                    ) : null}
-                  </div>
+                    </div>
+                  ) : (
+                    <div className="text-[11px] font-mono text-slate-400 font-medium bg-white/5 px-2 py-0.5 rounded-lg border border-white/5 shrink-0" title={`Peak daily installs: ${Math.max(...points, 0)} • Daily average: ${points.length > 0 ? (points.reduce((a, b) => a + b, 0) / points.length).toFixed(1) : 0}`}>
+                      peak {Math.max(...points, 0)} • {points.length > 0 ? (points.reduce((a, b) => a + b, 0) / points.length).toFixed(1) : 0}/d
+                    </div>
+                  )}
                 </div>
               </div>
 
               {/* Sparkline Multi-Line Container */}
               <div
                 className="h-14 w-full pt-1.5 pb-0.5 flex items-center bg-slate-950/40 rounded-xl px-2 border border-white/5 group-hover:border-white/15 transition-all"
-                title={`Mini Graph for ${proj.name}: Combined (Cyan #00d2ff), Android (Emerald #34d399), Apple (Sky Blue #38bdf8)`}
+                title={`Mini Graph for ${proj.name}: Peak ${Math.max(...points, 0)}, Avg ${points.length > 0 ? (points.reduce((a, b) => a + b, 0) / points.length).toFixed(1) : 0}/day`}
               >
                 <Sparkline lines={sparklineLines} height={52} showGridLines={true} />
               </div>

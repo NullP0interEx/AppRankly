@@ -79,7 +79,7 @@ const ensureDirectoriesAndTemplates = (dataDirOption, configPathOption) => {
             },
             gemini: {
               apiKey: "",
-              model: "gemini-2.5-flash-lite"
+              model: "gemini-3.8-flash"
             }
           }
         }

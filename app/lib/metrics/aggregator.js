@@ -375,6 +375,7 @@ function matchAndPairApps(googleApps = [], appleApps = [], manualPairings = []) 
 
   if (normalizedPairs.length > 0) {
     normalizedPairs.forEach(pair => {
+      if (pair.ignore) return;
       const gApp = googleApps.find(g => pair.googlePackageName && normalizePackageOrBundle(g.packageName) === normalizePackageOrBundle(pair.googlePackageName));
       const aApp = appleApps.find(a => pair.appleBundleId && normalizePackageOrBundle(a.bundleId || a.packageName) === normalizePackageOrBundle(pair.appleBundleId));
 

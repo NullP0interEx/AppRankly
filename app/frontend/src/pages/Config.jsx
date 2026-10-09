@@ -1020,7 +1020,7 @@ export default function Config({ authToken, isStaticMode, isDemoMode, fetchAiSta
             providers: {
               openai: { apiKey: '', model: 'gpt-5-nano' },
               anthropic: { apiKey: '', model: 'claude-haiku-4-5-20251001' },
-              gemini: { apiKey: '', model: 'gemini-2.5-flash-lite' }
+              gemini: { apiKey: '', model: 'gemini-3.8-flash' }
             }
           }
         }];
@@ -1782,10 +1782,12 @@ export default function Config({ authToken, isStaticMode, isDemoMode, fetchAiSta
                       }}
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-accent-blue transition-colors text-white"
                     >
-                      <option value="gpt-5-nano" className="bg-slate-900 text-white">gpt-5-nano (Lightweight)</option>
+                      <option value="gpt-5-nano" className="bg-slate-900 text-white">gpt-5-nano (Lightweight / Ultra-fast)</option>
+                      <option value="gpt-4.1-nano" className="bg-slate-900 text-white">gpt-4.1-nano (Balanced)</option>
                       <option value="gpt-4o-mini" className="bg-slate-900 text-white">gpt-4o-mini</option>
                       <option value="gpt-4o" className="bg-slate-900 text-white">gpt-4o (Flagship Multimodal)</option>
                       <option value="o3-mini" className="bg-slate-900 text-white">o3-mini (Reasoning)</option>
+                      <option value="o1" className="bg-slate-900 text-white">o1 (Complex Reasoning)</option>
                     </select>
                   </Field>
                   <Field label="OpenAI API Key" hint="Secret key (sk-...)">
@@ -1817,7 +1819,7 @@ export default function Config({ authToken, isStaticMode, isDemoMode, fetchAiSta
                     platform="ai"
                     payload={{
                       provider: 'anthropic',
-                      model: entry.ai?.providers?.anthropic?.model || 'claude-3-5-sonnet-20241022',
+                      model: entry.ai?.providers?.anthropic?.model || 'claude-3-7-sonnet-latest',
                       apiKey: entry.ai?.providers?.anthropic?.apiKey
                     }}
                     authToken={authToken}
@@ -1828,7 +1830,7 @@ export default function Config({ authToken, isStaticMode, isDemoMode, fetchAiSta
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <Field label="Claude Model" hint="Select model ID">
                     <select
-                      value={entry.ai?.providers?.anthropic?.model || 'claude-haiku-4-5-20251001'}
+                      value={entry.ai?.providers?.anthropic?.model || 'claude-3-7-sonnet-latest'}
                       onChange={e => {
                         const currentAi = entry.ai || {};
                         const providers = currentAi.providers || {};
@@ -1840,9 +1842,10 @@ export default function Config({ authToken, isStaticMode, isDemoMode, fetchAiSta
                       }}
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-accent-blue transition-colors text-white"
                     >
+                      <option value="claude-3-7-sonnet-latest" className="bg-slate-900 text-white">claude-3-7-sonnet-latest (Hybrid Reasoning / Recommended)</option>
                       <option value="claude-haiku-4-5-20251001" className="bg-slate-900 text-white">claude-haiku-4.5 (Fast)</option>
+                      <option value="claude-3-5-sonnet-latest" className="bg-slate-900 text-white">claude-3-5-sonnet-latest</option>
                       <option value="claude-3-5-haiku-latest" className="bg-slate-900 text-white">claude-3-5-haiku-latest</option>
-                      <option value="claude-3-5-sonnet-latest" className="bg-slate-900 text-white">claude-3-5-sonnet-latest (Recommended)</option>
                       <option value="claude-3-opus-20240229" className="bg-slate-900 text-white">claude-3-opus-20240229 (Complex Reasoning)</option>
                     </select>
                   </Field>
@@ -1875,7 +1878,7 @@ export default function Config({ authToken, isStaticMode, isDemoMode, fetchAiSta
                     platform="ai"
                     payload={{
                       provider: 'gemini',
-                      model: entry.ai?.providers?.gemini?.model || 'gemini-2.5-pro',
+                      model: entry.ai?.providers?.gemini?.model || 'gemini-3.8-flash',
                       apiKey: entry.ai?.providers?.gemini?.apiKey
                     }}
                     authToken={authToken}
@@ -1886,7 +1889,7 @@ export default function Config({ authToken, isStaticMode, isDemoMode, fetchAiSta
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <Field label="Gemini Model" hint="Select model ID">
                     <select
-                      value={entry.ai?.providers?.gemini?.model || 'gemini-2.5-flash-lite'}
+                      value={entry.ai?.providers?.gemini?.model || 'gemini-3.8-flash'}
                       onChange={e => {
                         const currentAi = entry.ai || {};
                         const providers = currentAi.providers || {};
@@ -1898,9 +1901,15 @@ export default function Config({ authToken, isStaticMode, isDemoMode, fetchAiSta
                       }}
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-accent-blue transition-colors text-white"
                     >
-                      <option value="gemini-2.5-flash-lite" className="bg-slate-900 text-white">gemini-2.5-flash-lite (Recommended / Balanced)</option>
-                      <option value="gemini-1.5-flash" className="bg-slate-900 text-white">gemini-1.5-flash</option>
+                      <option value="gemini-3.8-flash" className="bg-slate-900 text-white">gemini-3.8-flash (Latest Flash / Recommended)</option>
+                      <option value="gemini-3.8-flash-lite" className="bg-slate-900 text-white">gemini-3.8-flash-lite (Latest Lite / Fast)</option>
+                      <option value="gemini-3.8-pro" className="bg-slate-900 text-white">gemini-3.8-pro (Advanced Reasoning)</option>
+                      <option value="gemini-2.5-flash" className="bg-slate-900 text-white">gemini-2.5-flash</option>
+                      <option value="gemini-2.5-flash-lite" className="bg-slate-900 text-white">gemini-2.5-flash-lite (Balanced Lite)</option>
+                      <option value="gemini-2.5-pro" className="bg-slate-900 text-white">gemini-2.5-pro</option>
+                      <option value="gemini-2.0-flash" className="bg-slate-900 text-white">gemini-2.0-flash</option>
                       <option value="gemini-2.0-flash-exp" className="bg-slate-900 text-white">gemini-2.0-flash-exp</option>
+                      <option value="gemini-1.5-flash" className="bg-slate-900 text-white">gemini-1.5-flash</option>
                       <option value="gemini-1.5-pro" className="bg-slate-900 text-white">gemini-1.5-pro (Complex Reasoning)</option>
                     </select>
                   </Field>

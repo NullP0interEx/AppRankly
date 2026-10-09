@@ -36,13 +36,26 @@ const getIgnoredSet = (baseConfig) => {
     if (pair.ignore) {
       if (pair.googlePackageName) list.push(pair.googlePackageName);
       if (pair.appleBundleId) list.push(pair.appleBundleId);
+      if (pair.name) list.push(pair.name);
     }
   });
   return new Set(list.map(p => String(p).trim().toLowerCase()).filter(Boolean));
 };
 
+const isIgnored = (pkg, ignoredSet) => {
+  if (!pkg || !ignoredSet || ignoredSet.size === 0) return false;
+  const candidates = [
+    pkg.packageName,
+    pkg.bundleId,
+    pkg.appId,
+    pkg.adamId,
+    pkg.name
+  ];
+  return candidates.some(c => c && ignoredSet.has(String(c).trim().toLowerCase()));
+};
+
 const fetchPackagesByPlatform = async (platform, baseConfig) => {
-  return resolver.resolve('packages:all', { platform }, async () => {
+  const allPkgs = await resolver.resolve('packages:all', { platform }, async () => {
     const fetchApple = async () => {
       try {
         const viewer = buildAppleViewer(baseConfig);
@@ -57,9 +70,7 @@ const fetchPackagesByPlatform = async (platform, baseConfig) => {
     const fetchGoogle = async () => {
       try {
         const viewer = buildGoogleViewer(baseConfig, 'dummy');
-        let pkgs = await viewer.listPackages();
-        const ignoredSet = getIgnoredSet(baseConfig);
-        pkgs = pkgs.filter(p => !ignoredSet.has(String(p.packageName).trim().toLowerCase()));
+        const pkgs = await viewer.listPackages();
         return pkgs.map(p => ({ ...p, platform: 'google' }));
       } catch (e) {
         console.error('Error fetching Google packages:', e.message);
@@ -72,11 +83,15 @@ const fetchPackagesByPlatform = async (platform, baseConfig) => {
     const [applePkgs, googlePkgs] = await Promise.all([fetchApple(), fetchGoogle()]);
     return [...applePkgs, ...googlePkgs];
   });
+
+  const ignoredSet = getIgnoredSet(baseConfig);
+  return (allPkgs || []).filter(p => !isIgnored(p, ignoredSet));
 };
 
 module.exports = {
   buildAppleViewer,
   buildGoogleViewer,
   fetchPackagesByPlatform,
-  getIgnoredSet
+  getIgnoredSet,
+  isIgnored
 };

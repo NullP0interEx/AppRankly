@@ -12,8 +12,8 @@ const rateLimit = require('express-rate-limit');
 
 const { DATA_DIR, getActualConfigPath, getBaseConfig, invalidateConfigCache, resolveKeyFilePath } = require("./lib/config");
 const { JWT_SECRET, PASSWORD_FILE, isPasswordSet, authenticate, requireAdmin } = require("./lib/auth");
-const { buildAppleViewer, buildGoogleViewer, fetchPackagesByPlatform, getIgnoredSet } = require("./lib/viewerFactory");
-const { getScrapedAppleStoreData, getScrapedPlayStoreData, APPSTORE_CACHE_FILE, PLAYSTORE_CACHE_FILE } = require("./lib/scraper");
+const { buildAppleViewer, buildGoogleViewer, fetchPackagesByPlatform, getIgnoredSet, isIgnored } = require("./lib/viewerFactory");
+const { getScrapedAppleStoreData, getScrapedPlayStoreData, getCachedStoreData, APPSTORE_CACHE_FILE, PLAYSTORE_CACHE_FILE } = require("./lib/scraper");
 const { getReleasesFromFile, saveReleasesToFile, RELEASES_FILE } = require("./lib/releases");
 const { NOTES_DIR, ensureGitNotesRepo, getNotesFromStorage, saveNoteToStorage, deleteNoteFromStorage, getNoteGitHistory, setupGitNotesRepo } = require("./lib/notes");
 
@@ -393,7 +393,9 @@ app.post("/api/test/apple", authenticate, async (req, res) => {
   const baseConfig = getBaseConfig();
   if (!baseConfig) return res.status(400).json({ success: false, error: "No config found" });
   try {
-    const apps = await buildAppleViewer(baseConfig).listPackages();
+    let apps = await buildAppleViewer(baseConfig).listPackages();
+    const ignoredSet = getIgnoredSet(baseConfig);
+    apps = apps.filter(a => !isIgnored(a, ignoredSet));
     res.json({ success: true, appCount: apps.length, apps: apps.slice(0, 5).map(a => ({ name: a.name, bundleId: a.bundleId || a.packageName })) });
   } catch (err) { res.json({ success: false, error: err.message }); }
 });
@@ -404,7 +406,7 @@ app.post("/api/test/google", authenticate, async (req, res) => {
   try {
     let pkgs = await buildGoogleViewer(baseConfig, 'dummy').listPackages();
     const ignoredSet = getIgnoredSet(baseConfig);
-    pkgs = pkgs.filter(p => !ignoredSet.has(String(p.packageName).trim().toLowerCase()));
+    pkgs = pkgs.filter(p => !isIgnored(p, ignoredSet));
     res.json({ success: true, appCount: pkgs.length, apps: pkgs.slice(0, 5).map(p => ({ name: p.name, packageName: p.packageName })) });
   } catch (err) { res.json({ success: false, error: err.message }); }
 });
@@ -447,38 +449,40 @@ app.get("/api/cache-stats", authenticate, (req, res) => res.json(resolver.getMet
 app.get("/api/projects", authenticate, async (req, res) => {
   const baseConfig = getBaseConfig();
   if (!baseConfig) return res.json([]);
+  const ignoredSet = getIgnoredSet(baseConfig);
   const projects = await resolver.resolve('projects', {}, async () => {
     const list = [];
     try {
       let packages = await buildGoogleViewer(baseConfig, 'dummy').listPackages();
-      const ignoredSet = getIgnoredSet(baseConfig);
-      packages = packages.filter(p => !ignoredSet.has(String(p.packageName).trim().toLowerCase()));
+      packages = packages.filter(p => !isIgnored(p, ignoredSet));
       for (let idx = 0; idx < packages.length; idx++) {
         const p = packages[idx];
         const meta = baseConfig.appMetadata?.[p.packageName] || {};
-        const cached = await getScrapedPlayStoreData(p.packageName);
+        const cached = getCachedStoreData(p.packageName, 'google');
         list.push({ index: `g-${idx}`, name: meta.displayName || cached?.title || p.name, platform: 'google', packageName: p.packageName, storeUrl: meta.storeUrl || cached?.url || `https://play.google.com/store/apps/details?id=${p.packageName}`, iconUrl: meta.iconUrl || cached?.iconUrl || cached?.icon || `https://s2.googleusercontent.com/s2/favicons?domain=play.google.com&sz=128`, hasKey: true });
       }
     } catch (e) {}
     if (baseConfig.keyFilePath_apple) {
       try {
-        const apps = await buildAppleViewer(baseConfig).listPackages();
+        let apps = await buildAppleViewer(baseConfig).listPackages();
+        apps = apps.filter(a => !isIgnored(a, ignoredSet));
         for (let idx = 0; idx < apps.length; idx++) {
           const a = apps[idx];
           const meta = baseConfig.appMetadata?.[a.packageName || a.bundleId] || {};
-          let cached = await getScrapedAppleStoreData(a.bundleId || a.packageName);
-          if (!cached && a.appId) cached = await getScrapedAppleStoreData(a.appId);
+          let cached = getCachedStoreData(a.bundleId || a.packageName, 'apple');
+          if (!cached && a.appId) cached = getCachedStoreData(a.appId, 'apple');
           list.push({ index: `a-${idx}`, name: meta.displayName || cached?.title || cached?.trackName || `${a.name} (App Store)`, platform: 'apple', packageName: a.packageName, bundleId: a.bundleId, storeUrl: meta.storeUrl || cached?.url || cached?.trackViewUrl || (a.adamId ? `https://apps.apple.com/app/id${a.adamId}` : null), iconUrl: meta.iconUrl || cached?.iconUrl || cached?.icon || `https://s2.googleusercontent.com/s2/favicons?domain=apps.apple.com&sz=128`, hasKey: true });
         }
       } catch (e) {}
     }
     return list;
   });
+  const filteredProjects = projects.filter(p => !isIgnored(p, ignoredSet));
   if (req.query.format === 'object') {
-    const pairings = matchAndPairApps(projects.filter(p => p.platform === 'google'), projects.filter(p => p.platform === 'apple'), baseConfig);
-    return res.json({ projects, pairings });
+    const pairings = matchAndPairApps(filteredProjects.filter(p => p.platform === 'google'), filteredProjects.filter(p => p.platform === 'apple'), baseConfig);
+    return res.json({ projects: filteredProjects, pairings });
   }
-  res.json(projects);
+  res.json(filteredProjects);
 });
 
 app.get("/api/pairings", authenticate, async (req, res) => {
@@ -491,6 +495,10 @@ app.get("/api/pairings", authenticate, async (req, res) => {
 app.post("/api/stats", authenticate, async (req, res) => {
   const baseConfig = getBaseConfig();
   const { platform = "google", projectIndex = "all", packageName = "", startDate = "", endDate = "" } = req.body;
+  const ignoredSet = getIgnoredSet(baseConfig);
+  if (packageName && isIgnored({ packageName, bundleId: packageName }, ignoredSet)) {
+    return res.json({ dailyTrends: [], appTrends: {}, ignored: true });
+  }
   const releases = getReleasesFromFile();
   const relHash = `${releases.length}_${releases[0]?.id || ''}`;
   const statsData = await resolver.resolve('stats', { platform, projectIndex, packageName, startDate, endDate, rel: relHash }, async () => {
@@ -539,6 +547,10 @@ app.post("/api/stats", authenticate, async (req, res) => {
 app.post("/api/dimension", authenticate, async (req, res) => {
   const { dimension, projectIndex = "all", packageName = "", startDate = "", endDate = "", platform = "google" } = req.body;
   const baseConfig = getBaseConfig();
+  const ignoredSet = getIgnoredSet(baseConfig);
+  if (packageName && isIgnored({ packageName, bundleId: packageName }, ignoredSet)) {
+    return res.json([]);
+  }
   const dimensionData = await resolver.resolve('dimension', { dimension, platform, projectIndex, packageName, startDate, endDate }, async () => {
     if (projectIndex === "all" || platform === "all") {
       const packages = await fetchPackagesByPlatform(platform === 'all' ? 'all' : platform, baseConfig);

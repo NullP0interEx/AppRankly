@@ -438,7 +438,7 @@ export default function Dashboard({
           <div className="flex items-center gap-2 w-full sm:w-auto">
             <div className="inline-flex items-center p-1 rounded-lg bg-slate-950/80 border border-white/10 text-xs gap-1 flex-1 sm:flex-none">
               {[
-                { id: 'all', title: 'All App', count: projects.length || 0, icon: LayoutGrid, activeColor: 'text-accent-blue border-accent-blue/40 bg-accent-blue/15' },
+                { id: 'all', title: 'All Apps', count: projects.length || 0, icon: LayoutGrid, activeColor: 'text-accent-blue border-accent-blue/40 bg-accent-blue/15' },
                 { id: 'apple', title: 'Apple Store', count: projects.filter(p => p.platform === 'apple').length || 0, icon: AppleStoreIcon, activeColor: 'text-sky-300 border-sky-500/40 bg-sky-500/15' },
                 { id: 'google', title: 'Play Store', count: projects.filter(p => p.platform === 'google').length || 0, icon: PlayStoreIcon, activeColor: 'text-emerald-400 border-emerald-500/40 bg-emerald-500/15' },
               ].map((tab) => {
@@ -471,18 +471,6 @@ export default function Dashboard({
                 );
               })}
             </div>
-
-            {refreshData && (
-              <button
-                onClick={refreshData}
-                disabled={loading}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 bg-accent-blue hover:bg-accent-blue/90 text-slate-950 rounded-lg text-xs font-extrabold transition-all shadow-md shadow-accent-blue/20 active:scale-95 disabled:opacity-50 cursor-pointer shrink-0"
-                title="Refresh all stats on the main page"
-              >
-                <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-                <span>Refresh Stats</span>
-              </button>
-            )}
           </div>
         </div>
 

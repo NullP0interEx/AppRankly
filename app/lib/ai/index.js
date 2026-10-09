@@ -3,23 +3,11 @@ const path = require('path');
 const Anthropic = require('@anthropic-ai/sdk');
 const OpenAI = require('openai');
 const { GoogleGenAI } = require('@google/genai');
-
-function getResolvedConfigPath() {
-  const dataDir = process.env.DATA_DIR || (process.env.NODE_ENV === 'production' ? path.join(__dirname, '..', '..', 'data') : path.join(__dirname, '..', '..', '..', 'data'));
-  const candidatePaths = [
-    process.env.CONFIG_PATH,
-    path.join(dataDir, 'config', 'config.json'),
-    path.join(dataDir, 'config.json'),
-    path.join(__dirname, '..', '..', '..', 'config', 'config.json'),
-    path.join(__dirname, '..', '..', 'config', 'config.json')
-  ].filter(Boolean);
-
-  return candidatePaths.find(p => fs.existsSync(p)) || candidatePaths[0];
-}
+const { getActualConfigPath } = require('../config');
 
 function loadAIConfig() {
   let rawConfig = {};
-  const configPath = getResolvedConfigPath();
+  const configPath = getActualConfigPath();
   if (fs.existsSync(configPath)) {
     try {
       rawConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
@@ -35,7 +23,7 @@ function loadAIConfig() {
   const providers = {
     anthropic: {
       apiKey: process.env.ANTHROPIC_API_KEY || aiConfig.providers?.anthropic?.apiKey || '',
-      model: process.env.ANTHROPIC_MODEL || aiConfig.providers?.anthropic?.model || 'claude-haiku-4-5-20251001'
+      model: process.env.ANTHROPIC_MODEL || aiConfig.providers?.anthropic?.model || 'claude-3-7-sonnet-latest'
     },
     openai: {
       apiKey: process.env.OPENAI_API_KEY || aiConfig.providers?.openai?.apiKey || '',
@@ -43,12 +31,41 @@ function loadAIConfig() {
     },
     gemini: {
       apiKey: process.env.GEMINI_API_KEY || aiConfig.providers?.gemini?.apiKey || '',
-      model: process.env.GEMINI_MODEL || aiConfig.providers?.gemini?.model || 'gemini-2.5-flash-lite'
+      model: process.env.GEMINI_MODEL || aiConfig.providers?.gemini?.model || 'gemini-3.8-flash'
     }
   };
 
   return { defaultProvider, providers };
 }
+
+const PROVIDER_MODELS = {
+  gemini: [
+    { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash (Latest Flash / Recommended)', recommended: true },
+    { id: 'gemini-3.8-flash-lite', name: 'Gemini 3.8 Flash Lite (Latest Lite / Fast)' },
+    { id: 'gemini-3.8-pro', name: 'Gemini 3.8 Pro (Advanced Reasoning)' },
+    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
+    { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite' },
+    { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
+    { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
+    { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash' },
+    { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro' }
+  ],
+  openai: [
+    { id: 'gpt-5-nano', name: 'GPT-5 Nano (Ultra-fast)', recommended: true },
+    { id: 'gpt-4.1-nano', name: 'GPT-4.1 Nano (Balanced)' },
+    { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
+    { id: 'gpt-4o', name: 'GPT-4o (Flagship Multimodal)' },
+    { id: 'o3-mini', name: 'o3-mini (Reasoning)' },
+    { id: 'o1', name: 'o1 (Complex Reasoning)' }
+  ],
+  anthropic: [
+    { id: 'claude-3-7-sonnet-latest', name: 'Claude 3.7 Sonnet (Hybrid Reasoning)', recommended: true },
+    { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5 (Fast)' },
+    { id: 'claude-3-5-sonnet-latest', name: 'Claude 3.5 Sonnet' },
+    { id: 'claude-3-5-haiku-latest', name: 'Claude 3.5 Haiku' },
+    { id: 'claude-3-opus-20240229', name: 'Claude 3 Opus' }
+  ]
+};
 
 function getAIStatus() {
   const { defaultProvider, providers } = loadAIConfig();
@@ -56,10 +73,11 @@ function getAIStatus() {
     id,
     available: Boolean(providers[id].apiKey),
     model: providers[id].model,
+    models: PROVIDER_MODELS[id] || [],
     maskedKey: providers[id].apiKey ? `${providers[id].apiKey.slice(0, 7)}...${providers[id].apiKey.slice(-4)}` : ''
   }));
 
-  return { defaultProvider, providers: providerList };
+  return { defaultProvider, providers: providerList, supportedModels: PROVIDER_MODELS };
 }
 
 async function anthropicGenerate({ system, prompt, schema, apiKey, model, maxTokens = 8192 }) {
@@ -189,5 +207,6 @@ async function generateJSON({ system, prompt, schema, provider, customModel, cus
 module.exports = {
   loadAIConfig,
   getAIStatus,
-  generateJSON
+  generateJSON,
+  PROVIDER_MODELS
 };

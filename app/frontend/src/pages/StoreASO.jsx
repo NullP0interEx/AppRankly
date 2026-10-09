@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Eye, MousePointer, Download, Percent, Search, Sparkles, CheckCircle,
   TrendingUp, Key, Globe, Shield, RefreshCw, Copy, Plus, AlertCircle, Bot,
@@ -18,6 +19,35 @@ import { findProject, getProjectUrlSegment } from '../lib/projectUtils';
 function clsx(...classes) {
   return classes.filter(Boolean).join(' ');
 }
+
+const PROVIDER_PRESET_MODELS = {
+  gemini: [
+    { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash (Latest Flash / Recommended)' },
+    { id: 'gemini-3.8-flash-lite', name: 'Gemini 3.8 Flash Lite (Latest Lite / Fast)' },
+    { id: 'gemini-3.8-pro', name: 'Gemini 3.8 Pro (Advanced Reasoning)' },
+    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
+    { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite' },
+    { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
+    { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
+    { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash' },
+    { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro' }
+  ],
+  openai: [
+    { id: 'gpt-5-nano', name: 'GPT-5 Nano (Ultra-fast)' },
+    { id: 'gpt-4.1-nano', name: 'GPT-4.1 Nano (Balanced)' },
+    { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
+    { id: 'gpt-4o', name: 'GPT-4o (Flagship Multimodal)' },
+    { id: 'o3-mini', name: 'o3-mini (Reasoning)' },
+    { id: 'o1', name: 'o1 (Complex Reasoning)' }
+  ],
+  anthropic: [
+    { id: 'claude-3-7-sonnet-latest', name: 'Claude 3.7 Sonnet (Hybrid Reasoning)' },
+    { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5 (Fast)' },
+    { id: 'claude-3-5-sonnet-latest', name: 'Claude 3.5 Sonnet' },
+    { id: 'claude-3-5-haiku-latest', name: 'Claude 3.5 Haiku' },
+    { id: 'claude-3-opus-20240229', name: 'Claude 3 Opus' }
+  ]
+};
 
 export function getDemoAsoData(pkgName = '', project = {}) {
   const name = project?.name || 'Selected App';
@@ -150,11 +180,54 @@ export function getDemoAsoData(pkgName = '', project = {}) {
   };
 }
 
-export default function StoreASO({ stats, isDemoMode, projects = [], selectedProjectIndex, platform = 'play', authToken, onSelectProject, setPlatform }) {
+function AsoAppSwitcher({ projects, activeProject, isAllScope, platform, onSelectProject, setPlatform }) {
+  const navigate = useNavigate();
+  const go = (proj) => {
+    if (!proj) {
+      onSelectProject?.('all');
+      setPlatform?.('all');
+      navigate('/store/all/all');
+      return;
+    }
+    const plat = proj.platform || 'google';
+    const seg = getProjectUrlSegment(proj);
+    setPlatform?.(plat);
+    onSelectProject?.(seg);
+    navigate(`/store/${plat === 'apple' ? 'apple' : 'android'}/${seg}`);
+  };
+  const pill = (active) => clsx(
+    "flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all shrink-0 cursor-pointer",
+    active ? "bg-indigo-600 text-white ring-1 ring-indigo-400/40" : "text-slate-400 hover:text-white hover:bg-white/5"
+  );
+  return (
+    <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar p-1.5 bg-slate-900/60 rounded-2xl border border-white/10" role="tablist" aria-label="Select app">
+      <button id="aso-switch-all" role="tab" aria-selected={isAllScope} onClick={() => go(null)} className={pill(isAllScope)}>
+        <LayoutGrid size={14} />
+        <span>All Apps</span>
+        <span className="px-1.5 rounded-full text-[10px] font-mono bg-white/10">{projects.length}</span>
+      </button>
+      {projects.map(p => {
+        const active = !isAllScope && activeProject && p.index === activeProject.index && p.platform === activeProject.platform;
+        return (
+          <button key={`${p.platform}-${p.index}`} id={`aso-switch-${p.platform}-${p.index}`} role="tab" aria-selected={!!active} onClick={() => go(p)} className={pill(active)} title={p.packageName}>
+            <AppIcon iconUrl={p.iconUrl} name={p.name} platform={p.platform} className="w-5 h-5 rounded-md shrink-0" />
+            <span className="max-w-[140px] truncate">{p.name}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+export default function StoreASO({ stats, isDemoMode, projects: rawProjects = [], selectedProjectIndex, platform = 'play', authToken, onSelectProject, setPlatform }) {
+  const projects = rawProjects.length > 0 ? rawProjects : MOCK_PROJECTS;
   const activeProject = findProject(projects, selectedProjectIndex, platform) || projects[0] || MOCK_PROJECTS[0];
   const packageName = activeProject?.packageName || 'com.example.app';
   const effectivePlatform = activeProject?.platform || platform;
   const isAllScope = selectedProjectIndex === 'all' || !selectedProjectIndex;
+  const appSwitcher = (
+    <AsoAppSwitcher projects={projects} activeProject={activeProject} isAllScope={isAllScope} platform={platform} onSelectProject={onSelectProject} setPlatform={setPlatform} />
+  );
 
   // Sub-Navigation Tab State
   const [activeTab, setActiveTab] = useState('audit'); // 'audit' | 'keywords' | 'competitors' | 'reviews' | 'builder' | 'action_plan'
@@ -314,6 +387,199 @@ export default function StoreASO({ stats, isDemoMode, projects = [], selectedPro
       setAsoData(demoFallback);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Store Metadata Repull State (v2.0.0)
+  const [repullLoading, setRepullLoading] = useState(false);
+  const [repullFeedback, setRepullFeedback] = useState(null);
+
+  const handleRepullStoreData = async () => {
+    setRepullLoading(true);
+    setRepullFeedback(null);
+    try {
+      if (isDemoMode) {
+        setTimeout(() => {
+          setRepullLoading(false);
+          setRepullFeedback('Fresh demo store metadata re-pulled!');
+          setTimeout(() => setRepullFeedback(null), 3000);
+        }, 600);
+        return;
+      }
+      const res = await apiFetch('/api/aso/repull', {
+        method: 'POST',
+        body: JSON.stringify({ packageName, platform: effectivePlatform })
+      }, authToken);
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.listingSnapshot) {
+          setAsoData(prev => ({
+            ...prev,
+            listingSnapshot: data.listingSnapshot
+          }));
+          setMetadataInputs(prev => ({
+            ...prev,
+            title: data.listingSnapshot.title || '',
+            short_description: data.listingSnapshot.short_desc || '',
+            subtitle: data.listingSnapshot.subtitle || '',
+            description: data.listingSnapshot.description || prev.description
+          }));
+          setRepullFeedback('Store metadata re-pulled & cache updated!');
+          fetchPromptPreview();
+          setTimeout(() => setRepullFeedback(null), 3500);
+        }
+      } else {
+        setRepullFeedback('Could not repull from store. Check network/rate-limits.');
+        setTimeout(() => setRepullFeedback(null), 4000);
+      }
+    } catch (e) {
+      console.error('Repull error:', e);
+      setRepullFeedback('Error repulling store data');
+      setTimeout(() => setRepullFeedback(null), 4000);
+    } finally {
+      setRepullLoading(false);
+    }
+  };
+
+  // Portfolio ASO Job State (Parent ASO Tab)
+  const [jobStatus, setJobStatus] = useState(null);
+  const [jobRunning, setJobRunning] = useState(false);
+
+  useEffect(() => {
+    if (!isDemoMode) {
+      apiFetch('/api/aso/portfolio/job/status', {}, authToken)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data && data.status === 'running') {
+            setJobStatus(data);
+            setJobRunning(true);
+          }
+        })
+        .catch(() => {});
+    }
+  }, []);
+
+  useEffect(() => {
+    let timer = null;
+    if (jobRunning && !isDemoMode) {
+      timer = setInterval(async () => {
+        try {
+          const res = await apiFetch('/api/aso/portfolio/job/status', {}, authToken);
+          if (res.ok) {
+            const data = await res.json();
+            setJobStatus(data);
+            if (data.status === 'completed' || data.status === 'failed' || data.status === 'cancelled') {
+              setJobRunning(false);
+              if (data.results && Array.isArray(data.results)) {
+                data.results.forEach(item => {
+                  if (item.packageName && item.score != null) {
+                    saveCachedAudit(item.packageName, {
+                      score: item.score,
+                      headline: item.headline,
+                      improvements: item.improvements || []
+                    });
+                  }
+                });
+              }
+              window.dispatchEvent(new CustomEvent('aso_audit_updated', { detail: { job: data } }));
+            }
+          }
+        } catch (e) {
+          console.warn('Job status poll error:', e);
+        }
+      }, 1500);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [jobRunning, isDemoMode]);
+
+  const handleStartPortfolioJob = async (options = {}) => {
+    const opts = typeof options === 'boolean' ? { force: options } : options;
+    const refreshOnly = Boolean(opts?.refreshOnly);
+    const runAi = Boolean(opts?.runAi ?? !refreshOnly);
+    const force = Boolean(opts?.force);
+
+    if (isDemoMode) {
+      setJobRunning(true);
+      setJobStatus({
+        status: 'running',
+        jobType: refreshOnly ? 'refresh' : 'ai',
+        phase: refreshOnly ? 'Refreshing store metadata from stores...' : 'Running AI listing audit & ASO analytics...',
+        progress: 25,
+        currentApp: 'Demo App 1 (Alpha)',
+        total: 3,
+        processed: 0
+      });
+      setTimeout(() => {
+        setJobStatus(prev => ({ ...prev, progress: 65, currentApp: 'Demo App 2 (Beta)', processed: 1 }));
+        setTimeout(() => {
+          setJobStatus({
+            status: 'completed',
+            jobType: refreshOnly ? 'refresh' : 'ai',
+            phase: refreshOnly ? 'Completed metadata refresh across 3 demo apps' : 'Completed AI analytics across 3 demo apps',
+            progress: 100,
+            currentApp: null,
+            total: 3,
+            processed: 3,
+            avgScore: 89,
+            results: [
+              { packageName: 'com.demo.alpha', score: 92, headline: 'Strong title keyword density; short description requires value proposition.' },
+              { packageName: 'com.demo.beta', score: 86, headline: 'Solid base metadata; subtitle needs secondary keyword enrichment.' },
+              { packageName: 'com.demo.gamma', score: 88, headline: 'High conversion screenshot structure and keyword placement.' }
+            ]
+          });
+          setJobRunning(false);
+          if (runAi) {
+            ['com.demo.alpha', 'com.demo.beta', 'com.demo.gamma'].forEach((pkg, idx) => {
+              saveCachedAudit(pkg, {
+                score: [92, 86, 88][idx],
+                headline: 'Audit completed via Portfolio ASO Job.',
+                improvements: []
+              });
+            });
+          }
+          window.dispatchEvent(new CustomEvent('aso_audit_updated', { detail: {} }));
+        }, 1000);
+      }, 1000);
+      return;
+    }
+
+    setJobRunning(true);
+    try {
+      const res = await apiFetch('/api/aso/portfolio/job/start', {
+        method: 'POST',
+        body: JSON.stringify({
+          platform,
+          force,
+          refreshOnly,
+          runAi,
+          provider: selectedProvider,
+          model: customModel
+        })
+      }, authToken);
+      if (res.ok) {
+        const data = await res.json();
+        setJobStatus(data.job || { status: 'running', progress: 0, jobType: refreshOnly ? 'refresh' : 'ai' });
+      } else {
+        setJobRunning(false);
+      }
+    } catch (e) {
+      console.error('Failed to start portfolio job:', e);
+      setJobRunning(false);
+    }
+  };
+
+  const handleCancelPortfolioJob = async () => {
+    if (isDemoMode) {
+      setJobRunning(false);
+      setJobStatus(null);
+      return;
+    }
+    try {
+      await apiFetch('/api/aso/portfolio/job/cancel', { method: 'POST' }, authToken);
+    } catch (e) {
+      console.error('Cancel job error:', e);
     }
   };
 
@@ -860,8 +1126,9 @@ export default function StoreASO({ stats, isDemoMode, projects = [], selectedPro
 
     return (
       <div className="space-y-6 pb-12">
+        {appSwitcher}
         {/* Custom Portfolio Scope Header Banner */}
-        <div className="p-6 rounded-2xl bg-gradient-to-r from-slate-900/90 via-indigo-950/40 to-slate-900/90 border border-white/10 space-y-3 shadow-xl">
+        <div className="p-6 rounded-2xl bg-gradient-to-r from-slate-900/90 via-indigo-950/40 to-slate-900/90 border border-white/10 space-y-4 shadow-xl">
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div className="flex items-center space-x-3 text-accent-blue">
               <LayoutGrid size={24} />
@@ -869,7 +1136,7 @@ export default function StoreASO({ stats, isDemoMode, projects = [], selectedPro
                 Portfolio ASO Studio ({scopeLabel})
               </h1>
             </div>
-            {/* Cache / Audit Stats Strip */}
+            {/* Cache / Audit Stats Strip & Portfolio Job Action Button */}
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10">
                 <Layers size={13} className="text-accent-blue" />
@@ -896,11 +1163,107 @@ export default function StoreASO({ stats, isDemoMode, projects = [], selectedPro
                   )}>{avgScoreDisplay}/100</span>
                 </div>
               )}
+
+              {/* Refresh ASO Data Button (All Apps) */}
+              <button
+                onClick={() => handleStartPortfolioJob({ refreshOnly: true, force: true })}
+                disabled={jobRunning}
+                className="px-3.5 py-1.5 rounded-xl border border-slate-700/80 hover:border-slate-500 bg-slate-900/80 hover:bg-slate-800 text-slate-200 hover:text-white font-bold text-xs flex items-center gap-2 shadow-sm transition-all disabled:opacity-50 cursor-pointer"
+                title="Re-pull latest store metadata and screenshots from App Store / Google Play for all apps"
+              >
+                <RefreshCw size={13} className={clsx(jobRunning && jobStatus?.jobType === 'refresh' ? "animate-spin text-emerald-400" : "text-slate-400")} />
+                <span>{jobRunning && jobStatus?.jobType === 'refresh' ? "Refreshing ASO Data..." : "Refresh ASO Data"}</span>
+              </button>
+
+              {/* Run AI Analytics for All Apps Button */}
+              <button
+                onClick={() => handleStartPortfolioJob({ runAi: true, force: false })}
+                disabled={jobRunning}
+                className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-accent-blue hover:from-indigo-500 hover:to-sky-400 text-white font-bold text-xs flex items-center gap-2 shadow-lg hover:shadow-indigo-500/25 transition-all disabled:opacity-50 cursor-pointer"
+                title="Run AI listing audit and calculate ASO scores across all portfolio apps"
+              >
+                <Sparkles size={14} className={clsx(jobRunning && jobStatus?.jobType !== 'refresh' ? "animate-spin text-amber-300" : "text-white")} />
+                <span>{jobRunning && jobStatus?.jobType !== 'refresh' ? "Running AI Analytics..." : "Run AI Analytics for All Apps"}</span>
+              </button>
             </div>
           </div>
           <p className="text-xs sm:text-sm text-slate-300 max-w-3xl leading-relaxed">
             Viewing aggregated portfolio ASO health scores and top priority fixes. Select an individual app below or from the top navigation to unlock per-app AI listing audit, keyword workspace, competitor gap intelligence, review digest, and metadata sandbox.
           </p>
+
+          {/* Portfolio Job Live Progress & Results Banner */}
+          {jobStatus && (jobStatus.status === 'running' || jobStatus.status === 'completed') && (
+            <div className={clsx(
+              "p-4 rounded-xl border transition-all shadow-lg",
+              jobStatus.status === 'running'
+                ? "bg-indigo-950/50 border-indigo-500/40 text-white"
+                : "bg-emerald-950/40 border-emerald-500/30 text-emerald-200"
+            )}>
+              <div className="flex items-center justify-between gap-3 mb-2 flex-wrap">
+                <div className="flex items-center space-x-2">
+                  {jobStatus.status === 'running' ? (
+                    <RefreshCw size={15} className="text-indigo-400 animate-spin" />
+                  ) : (
+                    <CheckCircle size={15} className="text-emerald-400" />
+                  )}
+                  <span className="text-xs font-bold uppercase tracking-wider">
+                    {jobStatus.status === 'running'
+                      ? (jobStatus.jobType === 'refresh' ? "Refreshing Portfolio Store Metadata" : "Running Portfolio AI Analytics")
+                      : (jobStatus.jobType === 'refresh' ? "Store Metadata Refresh Completed" : "Portfolio AI Analytics Completed")}
+                  </span>
+                  {jobStatus.currentApp && (
+                    <span className="text-xs font-medium text-slate-300">
+                      • Processing: <strong className="text-white">{jobStatus.currentApp}</strong>
+                    </span>
+                  )}
+                </div>
+                <div>
+                  {jobStatus.status === 'running' ? (
+                    <button
+                      onClick={handleCancelPortfolioJob}
+                      className="text-[11px] font-semibold text-rose-400 hover:text-rose-300 px-2.5 py-1 rounded-lg bg-rose-500/10 border border-rose-500/20 cursor-pointer"
+                    >
+                      Cancel Job
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setJobStatus(null)}
+                      className="text-[11px] font-semibold text-slate-400 hover:text-white px-2.5 py-1 rounded-lg bg-white/5 border border-white/10 cursor-pointer"
+                    >
+                      Dismiss
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {jobStatus.status === 'running' && (
+                <div className="space-y-1.5">
+                  <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden border border-white/5">
+                    <div
+                      className="bg-gradient-to-r from-indigo-500 to-sky-400 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${Math.max(5, jobStatus.progress || 0)}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-[11px] text-slate-400">
+                    <span>{jobStatus.phase || 'Analyzing app metadata...'}</span>
+                    <span className="font-mono font-bold text-slate-200">{jobStatus.progress || 0}%</span>
+                  </div>
+                </div>
+              )}
+
+              {jobStatus.status === 'completed' && (
+                <div className="text-xs text-slate-300 flex items-center justify-between flex-wrap gap-2">
+                  <span>
+                    Refreshed metadata and completed ASO analytics across <strong>{jobStatus.processed || jobStatus.total}</strong> apps.
+                    {jobStatus.avgScore != null && (
+                      <> Portfolio average score: <strong className="text-emerald-400 font-mono">{jobStatus.avgScore}/100</strong>.</>
+                    )}
+                  </span>
+                  <span className="text-[11px] text-emerald-400 font-mono font-bold">Scores and fixes updated live below.</span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Portfolio ASO Scores & Recommendations Grid (Default Expanded) */}
@@ -917,6 +1280,7 @@ export default function StoreASO({ stats, isDemoMode, projects = [], selectedPro
 
   return (
     <div className="space-y-8 pb-12">
+      {appSwitcher}
       {/* Header & AI Controls */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 glass-card p-6 border border-white/10">
         <div>
@@ -936,13 +1300,16 @@ export default function StoreASO({ stats, isDemoMode, projects = [], selectedPro
             <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">AI Provider</span>
             <select
               value={selectedProvider}
-              onChange={(e) => setSelectedProvider(e.target.value)}
+              onChange={(e) => {
+                setSelectedProvider(e.target.value);
+                setCustomModel('');
+              }}
               className="bg-transparent text-xs font-bold text-white outline-none cursor-pointer"
             >
               {(aiStatus.providers?.length > 0 ? aiStatus.providers : [
-                { id: 'anthropic', model: 'claude-3-5-sonnet', available: true },
-                { id: 'openai', model: 'gpt-4o', available: true },
-                { id: 'gemini', model: 'gemini-1.5-pro', available: true }
+                { id: 'gemini', model: 'gemini-3.8-flash', available: true },
+                { id: 'openai', model: 'gpt-5-nano', available: true },
+                { id: 'anthropic', model: 'claude-3-7-sonnet-latest', available: true }
               ]).map(p => (
                 <option key={p.id} value={p.id} disabled={!p.available} className="bg-slate-800 text-white">
                   {p.id.toUpperCase()} {p.available ? `(${p.model})` : '(No Key)'}
@@ -952,14 +1319,47 @@ export default function StoreASO({ stats, isDemoMode, projects = [], selectedPro
           </div>
 
           <div className="flex flex-col border-l border-white/10 pl-3">
-            <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Custom Model</span>
-            <input
-              type="text"
-              placeholder="e.g. gpt-5 / opus"
-              value={customModel}
+            <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Model</span>
+            <select
+              value={customModel || ''}
               onChange={(e) => setCustomModel(e.target.value)}
-              className="bg-transparent text-xs font-semibold text-slate-200 outline-none w-28 placeholder-slate-600"
-            />
+              className="bg-transparent text-xs font-bold text-white outline-none cursor-pointer max-w-[200px]"
+            >
+              <option value="" className="bg-slate-800 text-slate-300">
+                Default ({aiStatus?.providers?.find(p => p.id === selectedProvider)?.model || 'Configured'})
+              </option>
+              {(aiStatus?.supportedModels?.[selectedProvider] || PROVIDER_PRESET_MODELS[selectedProvider] || []).map(m => (
+                <option key={m.id} value={m.id} className="bg-slate-800 text-white">
+                  {m.name || m.id}
+                </option>
+              ))}
+              <option value="__custom__" className="bg-slate-800 text-amber-300">Custom / Enter ID...</option>
+            </select>
+          </div>
+
+          {(customModel === '__custom__' || (customModel && !(aiStatus?.supportedModels?.[selectedProvider] || PROVIDER_PRESET_MODELS[selectedProvider] || []).some(m => m.id === customModel))) && (
+            <div className="flex flex-col border-l border-white/10 pl-3">
+              <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Custom ID</span>
+              <input
+                type="text"
+                placeholder="e.g. gemini-3.8-flash"
+                value={customModel === '__custom__' ? '' : customModel}
+                onChange={(e) => setCustomModel(e.target.value)}
+                className="bg-transparent text-xs font-semibold text-slate-200 outline-none w-28 placeholder-slate-600"
+              />
+            </div>
+          )}
+
+          <div className="flex items-center border-l border-white/10 pl-3">
+            <button
+              onClick={handleRepullStoreData}
+              disabled={repullLoading}
+              className="px-2.5 py-1 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+              title="Repull fresh store metadata directly from App Store / Play Store and update cache"
+            >
+              <RefreshCw size={12} className={clsx(repullLoading && "animate-spin text-accent-blue")} />
+              <span>{repullLoading ? "Repulling..." : "Repull Data"}</span>
+            </button>
           </div>
         </div>
       </div>
@@ -1306,21 +1706,68 @@ export default function StoreASO({ stats, isDemoMode, projects = [], selectedPro
               </div>
             )}
 
-            {asoData?.listingSnapshot && (
-              <div className="flex items-center gap-4 bg-slate-900/40 p-4 rounded-2xl border border-white/5">
-                {asoData.listingSnapshot.icon_url && (
-                  <img src={asoData.listingSnapshot.icon_url} alt="App Icon" className="w-12 h-12 rounded-xl object-cover border border-white/10" />
-                )}
-                <div className="flex-1 space-y-1">
-                  <h3 className="text-sm font-extrabold text-white">{asoData.listingSnapshot.title}</h3>
-                  <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-400">
-                    {asoData.listingSnapshot.developer && <span>Dev: <strong className="text-slate-200">{asoData.listingSnapshot.developer}</strong></span>}
-                    {asoData.listingSnapshot.category && <span>Category: <strong className="text-slate-200">{asoData.listingSnapshot.category}</strong></span>}
-                    {asoData.listingSnapshot.score > 0 && <span>Rating: <strong className="text-amber-400">{asoData.listingSnapshot.score.toFixed(1)}★</strong></span>}
-                    {asoData.listingSnapshot.content_rating && <span className="px-2 py-0.5 rounded bg-white/10 text-white font-mono text-[10px]">{asoData.listingSnapshot.content_rating}</span>}
-                    {asoData.listingSnapshot.price && <span className="text-emerald-400 font-bold">{asoData.listingSnapshot.price}</span>}
+            {asoData?.listingSnapshot ? (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-4 bg-slate-900/40 p-4 rounded-2xl border border-white/5 flex-wrap sm:flex-nowrap">
+                  <div className="flex items-center gap-4 min-w-0">
+                    {asoData.listingSnapshot.icon_url && (
+                      <img src={asoData.listingSnapshot.icon_url} alt="App Icon" className="w-12 h-12 rounded-xl object-cover border border-white/10 shrink-0" />
+                    )}
+                    <div className="flex-1 space-y-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="text-sm font-extrabold text-white truncate">{asoData.listingSnapshot.title}</h3>
+                        <span className="text-[10px] px-2 py-0.5 rounded bg-sky-500/10 border border-sky-500/20 text-sky-300 font-mono">
+                          Cached Metadata
+                        </span>
+                        {asoData.listingSnapshot.fetched_at && (
+                          <span className="text-[10px] text-slate-500 font-mono">
+                            {new Date(asoData.listingSnapshot.fetched_at).toLocaleDateString()}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-400">
+                        {asoData.listingSnapshot.developer && <span>Dev: <strong className="text-slate-200">{asoData.listingSnapshot.developer}</strong></span>}
+                        {asoData.listingSnapshot.category && <span>Category: <strong className="text-slate-200">{asoData.listingSnapshot.category}</strong></span>}
+                        {asoData.listingSnapshot.score > 0 && <span>Rating: <strong className="text-amber-400">{asoData.listingSnapshot.score.toFixed(1)}★</strong></span>}
+                        {asoData.listingSnapshot.content_rating && <span className="px-2 py-0.5 rounded bg-white/10 text-white font-mono text-[10px]">{asoData.listingSnapshot.content_rating}</span>}
+                        {asoData.listingSnapshot.price && <span className="text-emerald-400 font-bold">{asoData.listingSnapshot.price}</span>}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={handleRepullStoreData}
+                      disabled={repullLoading}
+                      className="px-3.5 py-2 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 text-indigo-300 hover:text-white text-xs font-bold transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer shadow"
+                      title="Bypass cache and repull fresh store metadata directly from App Store / Google Play"
+                    >
+                      <RefreshCw size={13} className={clsx(repullLoading && "animate-spin")} />
+                      <span>{repullLoading ? "Repulling..." : "Repull Store Data"}</span>
+                    </button>
                   </div>
                 </div>
+
+                {repullFeedback && (
+                  <div className="p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-xs text-indigo-300 flex items-center gap-2">
+                    <Info size={14} className="shrink-0" />
+                    <span>{repullFeedback}</span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center justify-between gap-4 bg-slate-900/40 p-4 rounded-2xl border border-white/5">
+                <div className="text-xs text-slate-400">
+                  No store metadata snapshot cached for <strong className="text-white">{packageName}</strong> yet.
+                </div>
+                <button
+                  onClick={handleRepullStoreData}
+                  disabled={repullLoading}
+                  className="px-3.5 py-1.5 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-500 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw size={13} className={clsx(repullLoading && "animate-spin")} />
+                  <span>{repullLoading ? "Pulling..." : "Pull Store Data"}</span>
+                </button>
               </div>
             )}
 

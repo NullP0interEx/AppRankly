@@ -194,6 +194,7 @@ export function groupProjectsByPair(projectList = [], explicitPairings = []) {
 
   if (normalizedPairs.length > 0) {
     normalizedPairs.forEach(pair => {
+      if (pair.ignore) return;
       const gApp = googleApps.find(g => pair.googlePackageName && getProjectUrlSegment(g) === pair.googlePackageName);
       const aApp = appleApps.find(a => pair.appleBundleId && getProjectUrlSegment(a) === pair.appleBundleId);
 

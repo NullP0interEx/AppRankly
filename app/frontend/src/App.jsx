@@ -30,7 +30,9 @@ const RouteFallback = () => (
 );
 
 function App() {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    return typeof window !== 'undefined' ? window.innerWidth < 1280 : true;
+  });
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
 
@@ -156,7 +158,7 @@ function App() {
           onOpenQuickNotes={() => state.setQuickNotesOpen(true)}
         />
 
-        <main className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar">
+        <main className="flex-1 overflow-y-auto p-4 md:p-8 pb-24 md:pb-28 custom-scrollbar">
           <React.Suspense fallback={<RouteFallback />}>
             <Routes>
               <Route path="/" element={<Dashboard {...state} viewMode="overview" />} />
