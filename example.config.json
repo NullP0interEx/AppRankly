@@ -52,7 +52,7 @@
       },
       "gemini": {
         "apiKey": "YOUR_GEMINI_API_KEY (Get from https://aistudio.google.com/app/apikey)",
-        "model": "gemini-3.6-flash"
+        "model": "gemini-2.5-flash-lite"
       }
     }
   },
